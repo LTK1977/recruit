@@ -21,6 +21,7 @@ export interface CrawlSession {
   totalPostingsFound: number;
   totalNewPostings: number;
   triggeredBy: 'manual' | 'scheduled';
+  note?: string;
 }
 
 export interface CrawlLog {

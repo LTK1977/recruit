@@ -1,12 +1,12 @@
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PlatformBadge } from '@/components/recruit/PlatformBadge';
-import { Play, History, ChevronDown, ChevronUp } from 'lucide-react';
+import { Play, History, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
 import { triggerCrawl } from '@/lib/api-client';
 import type { CrawlSession } from '@/types/crawl';
 import { toast } from 'sonner';
@@ -19,17 +19,9 @@ export default function CrawlLogPage() {
 
   const loadLog = useCallback(async () => {
     try {
-      const res = await fetch('/api/crawl');
+      const res = await fetch('/api/crawl?full=true');
       const data = await res.json();
-      // Load full crawl log
-      const logRes = await fetch('/api/crawl');
-      const logData = await logRes.json();
-      if (logData.latest) {
-        // We need the full log - use a separate approach
-        const fullRes = await fetch('/api/stats');
-        // For now, show at least the latest
-        setSessions(logData.latest ? [logData.latest] : []);
-      }
+      setSessions(data.sessions || []);
     } catch (err) {
       console.error(err);
     } finally {
@@ -47,6 +39,7 @@ export default function CrawlLogPage() {
       await loadLog();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '크롤링 실패');
+      await loadLog(); // 실패해도 이력 리로드 (에러 세션 기록됨)
     } finally {
       setCrawling(false);
     }
@@ -58,6 +51,15 @@ export default function CrawlLogPage() {
       case 'running': return 'bg-blue-500/15 text-blue-400 border-blue-500/30';
       case 'failed': return 'bg-red-500/15 text-red-400 border-red-500/30';
       default: return '';
+    }
+  };
+
+  const statusLabel = (status: string) => {
+    switch (status) {
+      case 'completed': return '완료';
+      case 'running': return '진행중';
+      case 'failed': return '실패';
+      default: return status;
     }
   };
 
@@ -108,52 +110,68 @@ export default function CrawlLogPage() {
                   const duration = s.completedAt && s.startedAt
                     ? ((new Date(s.completedAt).getTime() - new Date(s.startedAt).getTime()) / 1000).toFixed(1) + 's'
                     : '-';
+                  const hasDetails = s.results.length > 0 || !!s.note;
 
                   return (
-                    <>
-                      <TableRow key={s.id} className="cursor-pointer hover:bg-muted/50" onClick={() => setExpandedId(expanded ? null : s.id)}>
-                        <TableCell>
-                          {expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-                        </TableCell>
-                        <TableCell className="text-sm">
-                          {new Date(s.startedAt).toLocaleString('ko-KR')}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className="text-xs">
-                            {s.triggeredBy === 'manual' ? '수동' : '자동'}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant="outline" className={`text-xs ${statusColor(s.status)}`}>
-                            {s.status}
-                          </Badge>
-                        </TableCell>
-                        <TableCell className="font-medium">{s.totalPostingsFound}건</TableCell>
-                        <TableCell className="font-medium text-primary">{s.totalNewPostings}건</TableCell>
-                        <TableCell className="text-sm text-muted-foreground">{duration}</TableCell>
-                      </TableRow>
+                    <TableRow key={s.id} className="group">
+                      <TableCell colSpan={7} className="p-0">
+                        {/* 세션 요약 행 */}
+                        <div
+                          className="flex items-center cursor-pointer hover:bg-muted/50 px-4 py-3"
+                          onClick={() => hasDetails && setExpandedId(expanded ? null : s.id)}
+                        >
+                          <div className="w-10 flex-shrink-0">
+                            {hasDetails && (expanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />)}
+                          </div>
+                          <div className="flex-1 text-sm">
+                            {new Date(s.startedAt).toLocaleString('ko-KR')}
+                          </div>
+                          <div className="w-20">
+                            <Badge variant="outline" className="text-xs">
+                              {s.triggeredBy === 'manual' ? '수동' : '자동'}
+                            </Badge>
+                          </div>
+                          <div className="w-20">
+                            <Badge variant="outline" className={`text-xs ${statusColor(s.status)}`}>
+                              {statusLabel(s.status)}
+                            </Badge>
+                          </div>
+                          <div className="w-24 font-medium text-sm">{s.totalPostingsFound}건</div>
+                          <div className="w-20 font-medium text-sm text-primary">{s.totalNewPostings}건</div>
+                          <div className="w-28 text-sm text-muted-foreground">{duration}</div>
+                        </div>
 
-                      {expanded && s.results.length > 0 && (
-                        <TableRow key={`${s.id}-detail`}>
-                          <TableCell colSpan={7} className="bg-muted/20 px-8 py-3">
-                            <div className="space-y-2">
-                              <p className="text-xs font-medium text-muted-foreground mb-2">플랫폼별 상세</p>
-                              {s.results.map((r, i) => (
-                                <div key={i} className="flex items-center gap-3 text-sm">
-                                  <PlatformBadge platform={r.platform} />
-                                  <span className="text-muted-foreground">{r.companySearchTerm}</span>
-                                  <Badge variant="outline" className={`text-xs ${statusColor(r.status)}`}>{r.status}</Badge>
-                                  <span>{r.postingsFound}건</span>
-                                  <span className="text-primary">+{r.newPostings}</span>
-                                  <span className="text-muted-foreground">{(r.durationMs / 1000).toFixed(1)}s</span>
-                                  {r.error && <span className="text-destructive text-xs">{r.error}</span>}
-                                </div>
-                              ))}
-                            </div>
-                          </TableCell>
-                        </TableRow>
-                      )}
-                    </>
+                        {/* 확장: 상세 내역 */}
+                        {expanded && (
+                          <div className="bg-muted/20 px-8 py-3 border-t border-border/50">
+                            {s.note && (
+                              <div className="flex items-center gap-2 text-sm text-muted-foreground mb-3">
+                                <AlertCircle className="h-4 w-4 flex-shrink-0" />
+                                <span>{s.note}</span>
+                              </div>
+                            )}
+                            {s.results.length > 0 && (
+                              <div className="space-y-2">
+                                <p className="text-xs font-medium text-muted-foreground mb-2">플랫폼별 상세</p>
+                                {s.results.map((r, i) => (
+                                  <div key={i} className="flex items-center gap-3 text-sm">
+                                    <PlatformBadge platform={r.platform} />
+                                    <span className="text-muted-foreground truncate max-w-[200px]">{r.companySearchTerm}</span>
+                                    <Badge variant="outline" className={`text-xs ${statusColor(r.status)}`}>
+                                      {statusLabel(r.status)}
+                                    </Badge>
+                                    <span>{r.postingsFound}건</span>
+                                    <span className="text-primary">+{r.newPostings}</span>
+                                    <span className="text-muted-foreground">{(r.durationMs / 1000).toFixed(1)}s</span>
+                                    {r.error && <span className="text-destructive text-xs truncate max-w-[200px]">{r.error}</span>}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </TableCell>
+                    </TableRow>
                   );
                 })
               )}
