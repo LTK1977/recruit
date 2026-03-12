@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
-import { getCompanies, addCompany } from '@/lib/storage';
+import { addCompaniesBulk } from '@/lib/storage';
 
 interface ParsedRow {
   name: string;
@@ -75,43 +75,25 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 기존 기업 목록 조회 (중복 체크용)
-    const existing = await getCompanies();
-    const existingNames = new Set(existing.companies.map(c => c.name.toLowerCase()));
-
-    let added = 0;
-    let skipped = 0;
-    const skippedNames: string[] = [];
-
-    for (const row of parsed) {
-      if (existingNames.has(row.name.toLowerCase())) {
-        skipped++;
-        skippedNames.push(row.name);
-        continue;
-      }
-
-      const terms = row.searchTerms.length > 0
+    // 검색어 자동 생성 후 배치로 한번에 저장
+    const items = parsed.map(row => ({
+      name: row.name,
+      aliases: row.aliases,
+      searchTerms: row.searchTerms.length > 0
         ? row.searchTerms
-        : [`${row.name} AI`, `${row.name} 인공지능`, `${row.name} 데이터`];
+        : [`${row.name} AI`, `${row.name} 인공지능`, `${row.name} 데이터`],
+      active: true,
+      notes: row.notes,
+    }));
 
-      await addCompany({
-        name: row.name,
-        aliases: row.aliases,
-        searchTerms: terms,
-        active: true,
-        notes: row.notes,
-      });
-
-      existingNames.add(row.name.toLowerCase());
-      added++;
-    }
+    const result = await addCompaniesBulk(items);
 
     return NextResponse.json({
       success: true,
       total: parsed.length,
-      added,
-      skipped,
-      skippedNames: skippedNames.slice(0, 20), // 최대 20개만 표시
+      added: result.added.length,
+      skipped: result.duplicateNames.length,
+      skippedNames: result.duplicateNames.slice(0, 20),
     });
   } catch (err) {
     console.error('Bulk upload error:', err);

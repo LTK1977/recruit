@@ -54,6 +54,45 @@ export async function addCompany(data: Omit<Company, 'id' | 'addedAt'>): Promise
   return company;
 }
 
+export async function addCompaniesBulk(items: Omit<Company, 'id' | 'addedAt'>[]): Promise<{ added: Company[]; duplicateNames: string[] }> {
+  const list = await getCompanies();
+  const existingNames = new Set(list.companies.map(c => c.name.toLowerCase()));
+  const existingIds = new Set(list.companies.map(c => c.id));
+  const added: Company[] = [];
+  const duplicateNames: string[] = [];
+  const now = new Date().toISOString();
+
+  for (const data of items) {
+    if (existingNames.has(data.name.toLowerCase())) {
+      duplicateNames.push(data.name);
+      continue;
+    }
+
+    let id = slugify(data.name) || generateId();
+    // ID 충돌 시 고유 접미사 추가
+    if (existingIds.has(id)) {
+      id = `${id}-${generateId().slice(0, 6)}`;
+    }
+
+    const company: Company = {
+      ...data,
+      id,
+      addedAt: now,
+    };
+    list.companies.push(company);
+    existingNames.add(data.name.toLowerCase());
+    existingIds.add(id);
+    added.push(company);
+  }
+
+  if (added.length > 0) {
+    list.updatedAt = now;
+    await saveCompanies(list); // 한 번만 저장!
+  }
+
+  return { added, duplicateNames };
+}
+
 export async function updateCompany(id: string, updates: Partial<Company>): Promise<Company | null> {
   const list = await getCompanies();
   const idx = list.companies.findIndex((c) => c.id === id);
