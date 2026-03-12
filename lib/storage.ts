@@ -5,11 +5,26 @@ import type { PostingQueryParams } from '@/types/filters';
 import { generateId, slugify, todayString } from './constants';
 
 // ============================================================
-// 환경 감지: Vercel이면 KV, 로컬이면 파일시스템
+// 저장소 모드 감지 (런타임 함수 - 매 호출 시 평가)
 // ============================================================
-const IS_VERCEL = !!process.env.VERCEL || !!process.env.KV_REST_API_URL;
+type StorageMode = 'kv' | 'tmpfile' | 'file';
 
-// --- KV helpers (Vercel) ---
+function getStorageMode(): StorageMode {
+  // 1순위: Vercel KV 설정이 있으면 KV 사용
+  if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
+    return 'kv';
+  }
+  // 2순위: Vercel 서버리스 환경이면 /tmp 사용
+  if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.VERCEL_ENV) {
+    return 'tmpfile';
+  }
+  // 3순위: 로컬 파일시스템
+  return 'file';
+}
+
+// ============================================================
+// KV helpers (Vercel KV / Redis)
+// ============================================================
 async function kvGet<T>(key: string, defaultValue: T): Promise<T> {
   const { kv } = await import('@vercel/kv');
   const val = await kv.get<T>(key);
@@ -26,12 +41,24 @@ async function kvKeys(pattern: string): Promise<string[]> {
   return kv.keys(pattern);
 }
 
-async function kvDel(key: string): Promise<void> {
-  const { kv } = await import('@vercel/kv');
-  await kv.del(key);
+// ============================================================
+// File helpers (로컬 + /tmp 공용)
+// ============================================================
+function getDataDir(): string {
+  const path = require('path');
+  const mode = getStorageMode();
+  if (mode === 'tmpfile') {
+    // Vercel 서버리스: /tmp 은 쓰기 가능
+    return '/tmp/recruit-data';
+  }
+  return path.join(process.cwd(), 'data');
 }
 
-// --- File helpers (로컬) ---
+function dataPath(...segments: string[]): string {
+  const path = require('path');
+  return path.join(getDataDir(), ...segments);
+}
+
 async function fileGet<T>(filePath: string, defaultValue: T): Promise<T> {
   const { promises: fs } = await import('fs');
   try {
@@ -46,40 +73,46 @@ async function fileSet<T>(filePath: string, data: T): Promise<void> {
   const { promises: fs } = await import('fs');
   const path = await import('path');
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const tmp = filePath + '.tmp';
-  await fs.writeFile(tmp, JSON.stringify(data, null, 2), 'utf-8');
-  await fs.rename(tmp, filePath);
-}
-
-function dataPath(...segments: string[]): string {
-  const path = require('path');
-  return path.join(process.cwd(), 'data', ...segments);
+  await fs.writeFile(filePath, JSON.stringify(data, null, 2), 'utf-8');
 }
 
 // ============================================================
-// 통합 저장소 인터페이스
+// 통합 읽기/쓰기
 // ============================================================
-
 const KV_COMPANIES = 'recruit:companies';
 const KV_CRAWL_LOG = 'recruit:crawl-log';
 function kvPostingsKey(date: string) { return `recruit:postings:${date}`; }
 
+async function storageGet<T>(kvKey: string, fileSuffix: string, defaultValue: T): Promise<T> {
+  const mode = getStorageMode();
+  if (mode === 'kv') {
+    return kvGet<T>(kvKey, defaultValue);
+  }
+  return fileGet<T>(dataPath(fileSuffix), defaultValue);
+}
+
+async function storageSet<T>(kvKey: string, fileSuffix: string, data: T): Promise<void> {
+  const mode = getStorageMode();
+  if (mode === 'kv') {
+    await kvSet(kvKey, data);
+  } else {
+    await fileSet(dataPath(fileSuffix), data);
+  }
+}
+
+// ============================================================
 // === Companies ===
+// ============================================================
 
 export async function getCompanies(): Promise<CompanyList> {
-  const defaultVal: CompanyList = { companies: [], updatedAt: new Date().toISOString() };
-  if (IS_VERCEL) {
-    return kvGet<CompanyList>(KV_COMPANIES, defaultVal);
-  }
-  return fileGet<CompanyList>(dataPath('companies.json'), defaultVal);
+  return storageGet<CompanyList>(KV_COMPANIES, 'companies.json', {
+    companies: [],
+    updatedAt: new Date().toISOString(),
+  });
 }
 
 export async function saveCompanies(list: CompanyList): Promise<void> {
-  if (IS_VERCEL) {
-    await kvSet(KV_COMPANIES, list);
-  } else {
-    await fileSet(dataPath('companies.json'), list);
-  }
+  await storageSet(KV_COMPANIES, 'companies.json', list);
 }
 
 export async function addCompany(data: Omit<Company, 'id' | 'addedAt'>): Promise<Company> {
@@ -153,27 +186,23 @@ export async function removeCompany(id: string): Promise<boolean> {
   return true;
 }
 
+// ============================================================
 // === Postings ===
+// ============================================================
 
 export async function getPostingsByDate(date: string): Promise<DailyPostings | null> {
-  if (IS_VERCEL) {
-    return kvGet<DailyPostings | null>(kvPostingsKey(date), null);
-  }
-  return fileGet<DailyPostings | null>(dataPath('postings', `${date}.json`), null);
+  return storageGet<DailyPostings | null>(kvPostingsKey(date), `postings/${date}.json`, null);
 }
 
 export async function savePostings(daily: DailyPostings): Promise<void> {
-  if (IS_VERCEL) {
-    await kvSet(kvPostingsKey(daily.date), daily);
-  } else {
-    await fileSet(dataPath('postings', `${daily.date}.json`), daily);
-  }
+  await storageSet(kvPostingsKey(daily.date), `postings/${daily.date}.json`, daily);
 }
 
 export async function getAllPostingIds(): Promise<Set<string>> {
   const ids = new Set<string>();
+  const mode = getStorageMode();
 
-  if (IS_VERCEL) {
+  if (mode === 'kv') {
     const keys = await kvKeys('recruit:postings:*');
     for (const key of keys) {
       const data = await kvGet<DailyPostings | null>(key, null);
@@ -208,8 +237,9 @@ export async function queryPostings(params: PostingQueryParams): Promise<{
 }> {
   const allPostings: JobPosting[] = [];
   const today = todayString();
+  const mode = getStorageMode();
 
-  if (IS_VERCEL) {
+  if (mode === 'kv') {
     const keys = await kvKeys('recruit:postings:*');
     for (const key of keys) {
       const date = key.replace('recruit:postings:', '');
@@ -282,13 +312,12 @@ export async function queryPostings(params: PostingQueryParams): Promise<{
   return { postings, total, page: params.page, pageSize: params.pageSize };
 }
 
+// ============================================================
 // === Crawl Log ===
+// ============================================================
 
 export async function getCrawlLog(): Promise<CrawlLog> {
-  if (IS_VERCEL) {
-    return kvGet<CrawlLog>(KV_CRAWL_LOG, { sessions: [] });
-  }
-  return fileGet<CrawlLog>(dataPath('crawl-log.json'), { sessions: [] });
+  return storageGet<CrawlLog>(KV_CRAWL_LOG, 'crawl-log.json', { sessions: [] });
 }
 
 export async function appendCrawlSession(session: CrawlSession): Promise<void> {
@@ -300,10 +329,5 @@ export async function appendCrawlSession(session: CrawlSession): Promise<void> {
     log.sessions.unshift(session);
   }
   log.sessions = log.sessions.slice(0, 100);
-
-  if (IS_VERCEL) {
-    await kvSet(KV_CRAWL_LOG, log);
-  } else {
-    await fileSet(dataPath('crawl-log.json'), log);
-  }
+  await storageSet(KV_CRAWL_LOG, 'crawl-log.json', log);
 }
