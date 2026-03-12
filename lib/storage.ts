@@ -1,21 +1,39 @@
-import { promises as fs } from 'fs';
-import path from 'path';
 import type { CompanyList, Company } from '@/types/company';
 import type { DailyPostings, JobPosting } from '@/types/posting';
 import type { CrawlLog, CrawlSession } from '@/types/crawl';
 import type { PostingQueryParams } from '@/types/filters';
 import { generateId, slugify, todayString } from './constants';
 
-const DATA_DIR = path.join(process.cwd(), 'data');
-const POSTINGS_DIR = path.join(DATA_DIR, 'postings');
-const COMPANIES_FILE = path.join(DATA_DIR, 'companies.json');
-const CRAWL_LOG_FILE = path.join(DATA_DIR, 'crawl-log.json');
+// ============================================================
+// 환경 감지: Vercel이면 KV, 로컬이면 파일시스템
+// ============================================================
+const IS_VERCEL = !!process.env.VERCEL || !!process.env.KV_REST_API_URL;
 
-async function ensureDir(dir: string) {
-  await fs.mkdir(dir, { recursive: true });
+// --- KV helpers (Vercel) ---
+async function kvGet<T>(key: string, defaultValue: T): Promise<T> {
+  const { kv } = await import('@vercel/kv');
+  const val = await kv.get<T>(key);
+  return val ?? defaultValue;
 }
 
-async function readJson<T>(filePath: string, defaultValue: T): Promise<T> {
+async function kvSet<T>(key: string, data: T): Promise<void> {
+  const { kv } = await import('@vercel/kv');
+  await kv.set(key, data);
+}
+
+async function kvKeys(pattern: string): Promise<string[]> {
+  const { kv } = await import('@vercel/kv');
+  return kv.keys(pattern);
+}
+
+async function kvDel(key: string): Promise<void> {
+  const { kv } = await import('@vercel/kv');
+  await kv.del(key);
+}
+
+// --- File helpers (로컬) ---
+async function fileGet<T>(filePath: string, defaultValue: T): Promise<T> {
+  const { promises: fs } = await import('fs');
   try {
     const content = await fs.readFile(filePath, 'utf-8');
     return JSON.parse(content) as T;
@@ -24,21 +42,44 @@ async function readJson<T>(filePath: string, defaultValue: T): Promise<T> {
   }
 }
 
-async function writeJson<T>(filePath: string, data: T): Promise<void> {
-  await ensureDir(path.dirname(filePath));
+async function fileSet<T>(filePath: string, data: T): Promise<void> {
+  const { promises: fs } = await import('fs');
+  const path = await import('path');
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
   const tmp = filePath + '.tmp';
   await fs.writeFile(tmp, JSON.stringify(data, null, 2), 'utf-8');
   await fs.rename(tmp, filePath);
 }
 
+function dataPath(...segments: string[]): string {
+  const path = require('path');
+  return path.join(process.cwd(), 'data', ...segments);
+}
+
+// ============================================================
+// 통합 저장소 인터페이스
+// ============================================================
+
+const KV_COMPANIES = 'recruit:companies';
+const KV_CRAWL_LOG = 'recruit:crawl-log';
+function kvPostingsKey(date: string) { return `recruit:postings:${date}`; }
+
 // === Companies ===
 
 export async function getCompanies(): Promise<CompanyList> {
-  return readJson<CompanyList>(COMPANIES_FILE, { companies: [], updatedAt: new Date().toISOString() });
+  const defaultVal: CompanyList = { companies: [], updatedAt: new Date().toISOString() };
+  if (IS_VERCEL) {
+    return kvGet<CompanyList>(KV_COMPANIES, defaultVal);
+  }
+  return fileGet<CompanyList>(dataPath('companies.json'), defaultVal);
 }
 
 export async function saveCompanies(list: CompanyList): Promise<void> {
-  await writeJson(COMPANIES_FILE, list);
+  if (IS_VERCEL) {
+    await kvSet(KV_COMPANIES, list);
+  } else {
+    await fileSet(dataPath('companies.json'), list);
+  }
 }
 
 export async function addCompany(data: Omit<Company, 'id' | 'addedAt'>): Promise<Company> {
@@ -69,7 +110,6 @@ export async function addCompaniesBulk(items: Omit<Company, 'id' | 'addedAt'>[])
     }
 
     let id = slugify(data.name) || generateId();
-    // ID 충돌 시 고유 접미사 추가
     if (existingIds.has(id)) {
       id = `${id}-${generateId().slice(0, 6)}`;
     }
@@ -87,7 +127,7 @@ export async function addCompaniesBulk(items: Omit<Company, 'id' | 'addedAt'>[])
 
   if (added.length > 0) {
     list.updatedAt = now;
-    await saveCompanies(list); // 한 번만 저장!
+    await saveCompanies(list);
   }
 
   return { added, duplicateNames };
@@ -115,31 +155,48 @@ export async function removeCompany(id: string): Promise<boolean> {
 
 // === Postings ===
 
-function postingsFile(date: string): string {
-  return path.join(POSTINGS_DIR, `${date}.json`);
-}
-
 export async function getPostingsByDate(date: string): Promise<DailyPostings | null> {
-  return readJson<DailyPostings | null>(postingsFile(date), null);
+  if (IS_VERCEL) {
+    return kvGet<DailyPostings | null>(kvPostingsKey(date), null);
+  }
+  return fileGet<DailyPostings | null>(dataPath('postings', `${date}.json`), null);
 }
 
 export async function savePostings(daily: DailyPostings): Promise<void> {
-  await writeJson(postingsFile(daily.date), daily);
+  if (IS_VERCEL) {
+    await kvSet(kvPostingsKey(daily.date), daily);
+  } else {
+    await fileSet(dataPath('postings', `${daily.date}.json`), daily);
+  }
 }
 
 export async function getAllPostingIds(): Promise<Set<string>> {
-  await ensureDir(POSTINGS_DIR);
   const ids = new Set<string>();
-  try {
-    const files = await fs.readdir(POSTINGS_DIR);
-    for (const file of files) {
-      if (!file.endsWith('.json')) continue;
-      const data = await readJson<DailyPostings | null>(path.join(POSTINGS_DIR, file), null);
+
+  if (IS_VERCEL) {
+    const keys = await kvKeys('recruit:postings:*');
+    for (const key of keys) {
+      const data = await kvGet<DailyPostings | null>(key, null);
       if (data?.postings) {
         for (const p of data.postings) ids.add(p.id);
       }
     }
-  } catch { /* empty dir */ }
+  } else {
+    const { promises: fs } = await import('fs');
+    const dir = dataPath('postings');
+    try {
+      await fs.mkdir(dir, { recursive: true });
+      const files = await fs.readdir(dir);
+      for (const file of files) {
+        if (!file.endsWith('.json')) continue;
+        const data = await fileGet<DailyPostings | null>(dataPath('postings', file), null);
+        if (data?.postings) {
+          for (const p of data.postings) ids.add(p.id);
+        }
+      }
+    } catch { /* empty dir */ }
+  }
+
   return ids;
 }
 
@@ -149,22 +206,35 @@ export async function queryPostings(params: PostingQueryParams): Promise<{
   page: number;
   pageSize: number;
 }> {
-  await ensureDir(POSTINGS_DIR);
   const allPostings: JobPosting[] = [];
   const today = todayString();
 
-  try {
-    const files = await fs.readdir(POSTINGS_DIR);
-    const jsonFiles = files.filter((f) => f.endsWith('.json')).sort().reverse();
-
-    for (const file of jsonFiles) {
-      const date = file.replace('.json', '');
+  if (IS_VERCEL) {
+    const keys = await kvKeys('recruit:postings:*');
+    for (const key of keys) {
+      const date = key.replace('recruit:postings:', '');
       if (params.dateFrom && date < params.dateFrom) continue;
       if (params.dateTo && date > params.dateTo) continue;
-      const data = await readJson<DailyPostings | null>(path.join(POSTINGS_DIR, file), null);
+      const data = await kvGet<DailyPostings | null>(key, null);
       if (data?.postings) allPostings.push(...data.postings);
     }
-  } catch { /* empty */ }
+  } else {
+    const { promises: fs } = await import('fs');
+    const dir = dataPath('postings');
+    try {
+      await fs.mkdir(dir, { recursive: true });
+      const files = await fs.readdir(dir);
+      const jsonFiles = files.filter((f) => f.endsWith('.json')).sort().reverse();
+
+      for (const file of jsonFiles) {
+        const date = file.replace('.json', '');
+        if (params.dateFrom && date < params.dateFrom) continue;
+        if (params.dateTo && date > params.dateTo) continue;
+        const data = await fileGet<DailyPostings | null>(dataPath('postings', file), null);
+        if (data?.postings) allPostings.push(...data.postings);
+      }
+    } catch { /* empty */ }
+  }
 
   // Deduplicate by id (keep latest)
   const seen = new Map<string, JobPosting>();
@@ -215,7 +285,10 @@ export async function queryPostings(params: PostingQueryParams): Promise<{
 // === Crawl Log ===
 
 export async function getCrawlLog(): Promise<CrawlLog> {
-  return readJson<CrawlLog>(CRAWL_LOG_FILE, { sessions: [] });
+  if (IS_VERCEL) {
+    return kvGet<CrawlLog>(KV_CRAWL_LOG, { sessions: [] });
+  }
+  return fileGet<CrawlLog>(dataPath('crawl-log.json'), { sessions: [] });
 }
 
 export async function appendCrawlSession(session: CrawlSession): Promise<void> {
@@ -226,7 +299,11 @@ export async function appendCrawlSession(session: CrawlSession): Promise<void> {
   } else {
     log.sessions.unshift(session);
   }
-  // Keep last 100 sessions
   log.sessions = log.sessions.slice(0, 100);
-  await writeJson(CRAWL_LOG_FILE, log);
+
+  if (IS_VERCEL) {
+    await kvSet(KV_CRAWL_LOG, log);
+  } else {
+    await fileSet(dataPath('crawl-log.json'), log);
+  }
 }
