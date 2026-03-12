@@ -1,6 +1,6 @@
 import type { CompanyList, Company } from '@/types/company';
 import type { DailyPostings, JobPosting } from '@/types/posting';
-import type { CrawlLog, CrawlSession } from '@/types/crawl';
+import type { CrawlLog, CrawlSession, CrawlProgress } from '@/types/crawl';
 import type { PostingQueryParams } from '@/types/filters';
 import { generateId, slugify, todayString } from './constants';
 
@@ -81,6 +81,7 @@ async function fileSet<T>(filePath: string, data: T): Promise<void> {
 // ============================================================
 const KV_COMPANIES = 'recruit:companies';
 const KV_CRAWL_LOG = 'recruit:crawl-log';
+const KV_CRAWL_PROGRESS = 'recruit:crawl-progress';
 function kvPostingsKey(date: string) { return `recruit:postings:${date}`; }
 
 async function storageGet<T>(kvKey: string, fileSuffix: string, defaultValue: T): Promise<T> {
@@ -330,4 +331,53 @@ export async function appendCrawlSession(session: CrawlSession): Promise<void> {
   }
   log.sessions = log.sessions.slice(0, 100);
   await storageSet(KV_CRAWL_LOG, 'crawl-log.json', log);
+}
+
+// ============================================================
+// === Crawl Progress (이어하기용) ===
+// ============================================================
+
+export async function getCrawlProgress(): Promise<CrawlProgress | null> {
+  return storageGet<CrawlProgress | null>(KV_CRAWL_PROGRESS, 'crawl-progress.json', null);
+}
+
+export async function saveCrawlProgress(progress: CrawlProgress): Promise<void> {
+  await storageSet(KV_CRAWL_PROGRESS, 'crawl-progress.json', progress);
+}
+
+export async function clearCrawlProgress(): Promise<void> {
+  const emptyProgress: CrawlProgress = {
+    date: '',
+    completedCompanyIds: [],
+    totalCompanies: 0,
+    totalPostingsFound: 0,
+    totalNewPostings: 0,
+    runCount: 0,
+    lastRunAt: '',
+    isComplete: true,
+  };
+  await storageSet(KV_CRAWL_PROGRESS, 'crawl-progress.json', emptyProgress);
+}
+
+/** 기존 postings에 새 postings를 merge (중복 제거) */
+export async function mergePostings(date: string, newPostings: JobPosting[]): Promise<void> {
+  const existing = await getPostingsByDate(date);
+  const merged = new Map<string, JobPosting>();
+
+  // 기존 데이터 먼저
+  if (existing?.postings) {
+    for (const p of existing.postings) merged.set(p.id, p);
+  }
+  // 새 데이터로 덮어쓰기 (같은 id면 최신으로)
+  for (const p of newPostings) merged.set(p.id, p);
+
+  const allPostings = Array.from(merged.values());
+  const newCount = newPostings.filter(p => !existing?.postings?.some(ep => ep.id === p.id)).length;
+
+  await savePostings({
+    date,
+    crawledAt: new Date().toISOString(),
+    postings: allPostings,
+    newCount: (existing?.newCount || 0) + newCount,
+  });
 }

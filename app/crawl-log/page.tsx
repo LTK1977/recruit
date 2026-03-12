@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PlatformBadge } from '@/components/recruit/PlatformBadge';
-import { Play, History, ChevronDown, ChevronUp, AlertCircle } from 'lucide-react';
-import { triggerCrawl } from '@/lib/api-client';
+import { Play, History, ChevronDown, ChevronUp, AlertCircle, Loader2 } from 'lucide-react';
+import { triggerFullCrawl, type CrawlResult } from '@/lib/api-client';
 import type { CrawlSession } from '@/types/crawl';
 import { toast } from 'sonner';
 
@@ -15,6 +15,7 @@ export default function CrawlLogPage() {
   const [sessions, setSessions] = useState<CrawlSession[]>([]);
   const [loading, setLoading] = useState(true);
   const [crawling, setCrawling] = useState(false);
+  const [crawlProgress, setCrawlProgress] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const loadLog = useCallback(async () => {
@@ -33,15 +34,27 @@ export default function CrawlLogPage() {
 
   const handleCrawl = async () => {
     setCrawling(true);
+    setCrawlProgress('크롤링 시작...');
     try {
-      const result = await triggerCrawl();
-      toast.success(`크롤링 완료: ${result.totalFound}건 수집, ${result.newPostings}건 신규`);
+      const result = await triggerFullCrawl((progress: CrawlResult) => {
+        const p = progress.progress;
+        if (p) {
+          setCrawlProgress(`${p.completedCompanies}/${p.totalCompanies}개 기업 (배치 #${p.runCount})`);
+        }
+        // 매 배치마다 이력 리로드
+        loadLog();
+      });
+      const p = result.progress;
+      toast.success(
+        `크롤링 완료: ${p ? p.cumulativePostings : result.totalFound}건 수집, ${p ? p.cumulativeNewPostings : result.newPostings}건 신규`
+      );
       await loadLog();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '크롤링 실패');
-      await loadLog(); // 실패해도 이력 리로드 (에러 세션 기록됨)
+      await loadLog();
     } finally {
       setCrawling(false);
+      setCrawlProgress('');
     }
   };
 
@@ -70,10 +83,15 @@ export default function CrawlLogPage() {
           <h1 className="text-2xl font-bold">크롤링 이력</h1>
           <p className="text-sm text-muted-foreground mt-1">크롤링 실행 기록과 결과를 확인하세요</p>
         </div>
-        <Button onClick={handleCrawl} disabled={crawling} size="sm">
-          <Play className="h-4 w-4 mr-1.5" />
-          {crawling ? '크롤링 중...' : '크롤링 실행'}
-        </Button>
+        <div className="flex items-center gap-3">
+          {crawling && crawlProgress && (
+            <span className="text-sm text-muted-foreground">{crawlProgress}</span>
+          )}
+          <Button onClick={handleCrawl} disabled={crawling} size="sm">
+            {crawling ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Play className="h-4 w-4 mr-1.5" />}
+            {crawling ? '크롤링 중...' : '크롤링 실행'}
+          </Button>
+        </div>
       </div>
 
       <Card>

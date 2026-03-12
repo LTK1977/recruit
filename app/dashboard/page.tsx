@@ -7,8 +7,9 @@ import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PlatformBadge, NewBadge } from '@/components/recruit/PlatformBadge';
-import { FileText, Building2, Radar, Clock, Play, ExternalLink, TrendingUp } from 'lucide-react';
-import { fetchStats, triggerCrawl, fetchPostings } from '@/lib/api-client';
+import { FileText, Building2, Radar, Clock, Play, ExternalLink, TrendingUp, Loader2 } from 'lucide-react';
+import { fetchStats, triggerFullCrawl, fetchPostings } from '@/lib/api-client';
+import type { CrawlResult } from '@/lib/api-client';
 import type { DashboardStats } from '@/types/filters';
 import type { JobPosting } from '@/types/posting';
 import { PLATFORMS } from '@/lib/constants';
@@ -20,6 +21,7 @@ export default function DashboardPage() {
   const [recentPostings, setRecentPostings] = useState<JobPosting[]>([]);
   const [loading, setLoading] = useState(true);
   const [crawling, setCrawling] = useState(false);
+  const [crawlProgress, setCrawlProgress] = useState('');
 
   const loadData = useCallback(async () => {
     try {
@@ -42,14 +44,25 @@ export default function DashboardPage() {
 
   const handleCrawl = async () => {
     setCrawling(true);
+    setCrawlProgress('시작 중...');
     try {
-      const result = await triggerCrawl();
-      toast.success(`크롤링 완료: ${result.totalFound}건 수집, ${result.newPostings}건 신규`);
+      const result = await triggerFullCrawl((progress: CrawlResult) => {
+        if (progress.progress) {
+          const p = progress.progress;
+          setCrawlProgress(`${p.completedCompanies}/${p.totalCompanies}개 기업 (배치 #${p.runCount})`);
+        }
+      });
+      const cumulative = result.progress;
+      toast.success(
+        `크롤링 완료: ${cumulative?.cumulativePostings || result.totalFound}건 수집, ${cumulative?.cumulativeNewPostings || result.newPostings}건 신규`,
+        { duration: 5000 },
+      );
       await loadData();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : '크롤링 실패');
     } finally {
       setCrawling(false);
+      setCrawlProgress('');
     }
   };
 
@@ -73,10 +86,15 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-bold">대시보드</h1>
           <p className="text-sm text-muted-foreground mt-1">AI 채용 모니터링 현황</p>
         </div>
-        <Button onClick={handleCrawl} disabled={crawling} size="sm">
-          <Play className="h-4 w-4 mr-1.5" />
-          {crawling ? '크롤링 중...' : '크롤링 실행'}
-        </Button>
+        <div className="flex items-center gap-3">
+          {crawling && crawlProgress && (
+            <span className="text-xs text-muted-foreground">{crawlProgress}</span>
+          )}
+          <Button onClick={handleCrawl} disabled={crawling} size="sm">
+            {crawling ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Play className="h-4 w-4 mr-1.5" />}
+            {crawling ? '크롤링 중...' : '크롤링 실행'}
+          </Button>
+        </div>
       </div>
 
       {/* Stat cards */}

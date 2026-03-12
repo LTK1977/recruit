@@ -52,25 +52,80 @@ export async function bulkUploadCompanies(file: File): Promise<{
 }
 
 // === Crawl ===
+export interface CrawlResult {
+  sessionId?: string;
+  status: string;
+  totalFound: number;
+  newPostings: number;
+  note?: string;
+  isComplete: boolean;
+  progress?: {
+    completedCompanies: number;
+    totalCompanies: number;
+    runCount: number;
+    cumulativePostings: number;
+    cumulativeNewPostings: number;
+  };
+  error?: string;
+}
+
+/** 단일 배치 크롤링 실행 */
+export async function triggerCrawlBatch(options?: { forceNew?: boolean }): Promise<CrawlResult> {
+  const res = await fetch(`${BASE}/api/crawl`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options || {}),
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || '크롤링 실패');
+  return data;
+}
+
+/**
+ * 전체 크롤링 실행 (자동 이어하기).
+ * 모든 기업이 처리될 때까지 배치를 자동으로 반복 호출.
+ * onProgress 콜백으로 실시간 진행 상태를 전달.
+ */
+export async function triggerFullCrawl(
+  onProgress?: (progress: CrawlResult) => void,
+  options?: { forceNew?: boolean },
+): Promise<CrawlResult> {
+  let lastResult: CrawlResult | null = null;
+  let isFirst = true;
+
+  while (true) {
+    const result = await triggerCrawlBatch(isFirst ? options : undefined);
+    lastResult = result;
+    isFirst = false;
+
+    if (onProgress) onProgress(result);
+
+    if (result.isComplete) break;
+
+    // 다음 배치 전 짧은 대기 (서버 부하 방지)
+    await new Promise(r => setTimeout(r, 1000));
+  }
+
+  return lastResult!;
+}
+
+/** 이전 호환: triggerCrawl */
 export async function triggerCrawl(platforms?: string[]): Promise<{
   sessionId: string;
   status: string;
   totalFound: number;
   newPostings: number;
 }> {
-  const res = await fetch(`${BASE}/api/crawl`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(platforms ? { platforms } : {}),
-  });
-  if (!res.ok) {
-    const err = await res.json();
-    throw new Error(err.error || '크롤링 실패');
-  }
-  return res.json();
+  const result = await triggerCrawlBatch();
+  return {
+    sessionId: result.sessionId || '',
+    status: result.status,
+    totalFound: result.totalFound,
+    newPostings: result.newPostings,
+  };
 }
 
-export async function getCrawlStatus(): Promise<{ latest: unknown; isRunning: boolean }> {
+export async function getCrawlStatus(): Promise<{ latest: unknown; isRunning: boolean; progress: unknown }> {
   const res = await fetch(`${BASE}/api/crawl`);
   return res.json();
 }
