@@ -97,8 +97,9 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     console.error('Bulk upload error:', err);
+    const message = err instanceof Error ? err.message : String(err);
     return NextResponse.json(
-      { error: '파일 처리 중 오류가 발생했습니다.' },
+      { error: `파일 처리 중 오류가 발생했습니다: ${message}` },
       { status: 500 }
     );
   }
