@@ -9,8 +9,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Plus, Pencil, Trash2, Building2, Search } from 'lucide-react';
-import { fetchCompanies, createCompany, patchCompany, deleteCompany } from '@/lib/api-client';
+import { Plus, Pencil, Trash2, Building2, Search, Upload, FileSpreadsheet, Download } from 'lucide-react';
+import { fetchCompanies, createCompany, patchCompany, deleteCompany, bulkUploadCompanies } from '@/lib/api-client';
 import type { Company } from '@/types/company';
 import { toast } from 'sonner';
 
@@ -27,6 +27,8 @@ export default function CompaniesPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
   const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [uploadDialogOpen, setUploadDialogOpen] = useState(false);
+  const [uploading, setUploading] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormData>(emptyForm);
 
@@ -100,6 +102,49 @@ export default function CompaniesPage() {
     await loadCompanies();
   };
 
+  const handleBulkUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploading(true);
+    try {
+      const result = await bulkUploadCompanies(file);
+      if (result.added > 0) {
+        toast.success(`${result.added}개 기업이 등록되었습니다.`);
+      }
+      if (result.skipped > 0) {
+        toast.info(`${result.skipped}개 기업은 이미 등록되어 건너뛰었습니다.`, {
+          description: result.skippedNames.length > 0
+            ? `건너뜀: ${result.skippedNames.slice(0, 5).join(', ')}${result.skippedNames.length > 5 ? ' 외 ' + (result.skippedNames.length - 5) + '개' : ''}`
+            : undefined,
+          duration: 8000,
+        });
+      }
+      if (result.added === 0 && result.skipped === 0) {
+        toast.warning('파일에서 등록할 기업을 찾지 못했습니다.');
+      }
+      setUploadDialogOpen(false);
+      await loadCompanies();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : '업로드 실패');
+    } finally {
+      setUploading(false);
+      // 같은 파일 재선택 가능하도록 input 초기화
+      e.target.value = '';
+    }
+  };
+
+  const downloadTemplate = () => {
+    const csvContent = '\uFEFF기업명,별칭,검색어,메모\nHD현대,"HD Hyundai, 현대중공업","HD현대 AI, HD현대 데이터",조선업\n삼성전자,"Samsung Electronics, 삼성",,반도체';
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '기업목록_템플릿.csv';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="p-6 space-y-6 max-w-5xl">
       <div className="flex items-center justify-between">
@@ -107,10 +152,16 @@ export default function CompaniesPage() {
           <h1 className="text-2xl font-bold">모니터링 기업 관리</h1>
           <p className="text-sm text-muted-foreground mt-1">AI 채용을 모니터링할 고객사를 등록하세요</p>
         </div>
-        <Button onClick={openAdd} size="sm">
-          <Plus className="h-4 w-4 mr-1.5" />
-          기업 추가
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setUploadDialogOpen(true)}>
+            <Upload className="h-4 w-4 mr-1.5" />
+            일괄 등록
+          </Button>
+          <Button onClick={openAdd} size="sm">
+            <Plus className="h-4 w-4 mr-1.5" />
+            기업 추가
+          </Button>
+        </div>
       </div>
 
       {loading ? (
@@ -166,6 +217,59 @@ export default function CompaniesPage() {
           ))}
         </div>
       )}
+
+      {/* Bulk Upload Dialog */}
+      <Dialog open={uploadDialogOpen} onOpenChange={setUploadDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>엑셀 파일로 기업 일괄 등록</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="rounded-lg border border-dashed border-muted-foreground/30 p-6 text-center">
+              <FileSpreadsheet className="h-10 w-10 mx-auto text-muted-foreground/50 mb-3" />
+              <p className="text-sm text-muted-foreground mb-4">
+                Excel(.xlsx, .xls) 또는 CSV 파일을 선택하세요
+              </p>
+              <label className="cursor-pointer">
+                <input
+                  type="file"
+                  accept=".xlsx,.xls,.csv"
+                  className="hidden"
+                  onChange={handleBulkUpload}
+                  disabled={uploading}
+                />
+                <span className="inline-flex items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90 transition-colors">
+                  {uploading ? (
+                    <>처리 중...</>
+                  ) : (
+                    <><Upload className="h-4 w-4" /> 파일 선택</>
+                  )}
+                </span>
+              </label>
+            </div>
+
+            <div className="bg-muted/50 rounded-lg p-4 space-y-2">
+              <p className="text-sm font-medium">파일 형식 안내</p>
+              <ul className="text-xs text-muted-foreground space-y-1">
+                <li>• 첫 번째 행은 헤더(컬럼명)로 인식됩니다</li>
+                <li>• <strong>기업명</strong> (필수): &quot;기업명&quot;, &quot;회사명&quot;, &quot;company&quot; 등</li>
+                <li>• <strong>별칭</strong> (선택): 쉼표로 구분하여 여러 개 입력 가능</li>
+                <li>• <strong>검색어</strong> (선택): 비워두면 자동 생성됩니다</li>
+                <li>• <strong>메모</strong> (선택): 참고사항</li>
+                <li>• 기업명만 있는 단순 목록도 지원됩니다</li>
+                <li>• 이미 등록된 기업명은 자동으로 건너뜁니다</li>
+              </ul>
+              <Button variant="outline" size="sm" className="mt-2" onClick={downloadTemplate}>
+                <Download className="h-3 w-3 mr-1" />
+                템플릿 다운로드
+              </Button>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setUploadDialogOpen(false)}>닫기</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {/* Add/Edit Dialog */}
       <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>

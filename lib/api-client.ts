@@ -32,6 +32,25 @@ export async function deleteCompany(id: string): Promise<void> {
   await fetch(`${BASE}/api/companies?id=${id}`, { method: 'DELETE' });
 }
 
+export async function bulkUploadCompanies(file: File): Promise<{
+  success: boolean;
+  total: number;
+  added: number;
+  skipped: number;
+  skippedNames: string[];
+  error?: string;
+}> {
+  const formData = new FormData();
+  formData.append('file', file);
+  const res = await fetch(`${BASE}/api/companies/bulk`, {
+    method: 'POST',
+    body: formData,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || '업로드 실패');
+  return data;
+}
+
 // === Crawl ===
 export async function triggerCrawl(platforms?: string[]): Promise<{
   sessionId: string;
