@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getCompanies, addCompany, updateCompany, removeCompany } from '@/lib/storage';
+import { getCompanies, saveCompanies, addCompany, updateCompany, removeCompany } from '@/lib/storage';
 import { generateSearchTerms } from '@/lib/constants';
 
 export async function GET() {
@@ -29,23 +29,24 @@ export async function PATCH(request: NextRequest) {
   const id = searchParams.get('id');
   const action = searchParams.get('action');
 
-  // 전체 기업 검색어 일괄 재생성
+  // 전체 기업 검색어 일괄 재생성 (한 번에 저장)
   if (action === 'regenerate-search-terms') {
-    const { companies } = await getCompanies();
+    const list = await getCompanies();
     let updated = 0;
-    for (const company of companies) {
+    for (const company of list.companies) {
       const newTerms = generateSearchTerms(company.name);
       const oldTerms = company.searchTerms;
-      // 기존 검색어가 기본 생성 패턴이면 재생성 (커스텀은 유지)
-      const isDefault = oldTerms.length <= 3 && oldTerms.some(t =>
+      const isDefault = oldTerms.length <= 4 && oldTerms.some(t =>
         t.includes(' AI') || t.includes(' 인공지능') || t.includes(' 데이터')
       );
       if (isDefault || oldTerms.length === 0) {
-        await updateCompany(company.id, { searchTerms: newTerms });
+        company.searchTerms = newTerms;
         updated++;
       }
     }
-    return NextResponse.json({ success: true, total: companies.length, updated });
+    list.updatedAt = new Date().toISOString();
+    await saveCompanies(list);
+    return NextResponse.json({ success: true, total: list.companies.length, updated });
   }
 
   if (!id) return NextResponse.json({ error: 'id 필수' }, { status: 400 });
