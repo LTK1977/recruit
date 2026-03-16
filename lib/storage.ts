@@ -10,8 +10,12 @@ import { generateId, slugify, todayString } from './constants';
 type StorageMode = 'kv' | 'tmpfile' | 'file';
 
 function getStorageMode(): StorageMode {
-  // 1순위: Vercel KV 설정이 있으면 KV 사용
+  // 1순위: Vercel KV 설정이 있으면 KV 사용 (기존 @vercel/kv 방식)
   if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
+    return 'kv';
+  }
+  // 1순위-B: Vercel Redis (REDIS_URL) 방식
+  if (process.env.REDIS_URL) {
     return 'kv';
   }
   // 2순위: Vercel 서버리스 환경이면 /tmp 사용
@@ -23,22 +27,61 @@ function getStorageMode(): StorageMode {
 }
 
 // ============================================================
-// KV helpers (Vercel KV / Redis)
+// KV helpers (Upstash Redis via REDIS_URL 또는 @vercel/kv)
 // ============================================================
+import { Redis } from '@upstash/redis';
+
+let _redis: Redis | null = null;
+
+function getRedisClient(): Redis {
+  if (_redis) return _redis;
+
+  if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
+    // 기존 @vercel/kv 방식 호환
+    _redis = new Redis({
+      url: process.env.KV_REST_API_URL,
+      token: process.env.KV_REST_API_TOKEN,
+    });
+  } else if (process.env.REDIS_URL) {
+    // Vercel Redis: REDIS_URL에서 REST URL과 토큰 추출
+    // 형식: rediss://default:TOKEN@HOST:PORT
+    const url = new URL(process.env.REDIS_URL);
+    const restUrl = `https://${url.hostname}`;
+    const token = url.password;
+    _redis = new Redis({ url: restUrl, token });
+  } else {
+    throw new Error('Redis configuration not found');
+  }
+
+  return _redis;
+}
+
 async function kvGet<T>(key: string, defaultValue: T): Promise<T> {
-  const { kv } = await import('@vercel/kv');
-  const val = await kv.get<T>(key);
-  return val ?? defaultValue;
+  try {
+    const redis = getRedisClient();
+    const val = await redis.get<T>(key);
+    return val ?? defaultValue;
+  } catch (err) {
+    console.error(`[KV] get ${key} failed:`, err);
+    return defaultValue;
+  }
 }
 
 async function kvSet<T>(key: string, data: T): Promise<void> {
-  const { kv } = await import('@vercel/kv');
-  await kv.set(key, data);
+  const redis = getRedisClient();
+  await redis.set(key, JSON.stringify(data));
 }
 
 async function kvKeys(pattern: string): Promise<string[]> {
-  const { kv } = await import('@vercel/kv');
-  return kv.keys(pattern);
+  const redis = getRedisClient();
+  const keys: string[] = [];
+  let cursor = '0';
+  do {
+    const result = await redis.scan(Number(cursor), { match: pattern, count: 100 });
+    cursor = String(result[0]);
+    keys.push(...(result[1] as string[]));
+  } while (cursor !== '0');
+  return keys;
 }
 
 // ============================================================

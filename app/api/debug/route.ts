@@ -8,6 +8,8 @@ export async function GET() {
       VERCEL_ENV: process.env.VERCEL_ENV ?? '(not set)',
       KV_REST_API_URL: process.env.KV_REST_API_URL ? '(set)' : '(not set)',
       KV_REST_API_TOKEN: process.env.KV_REST_API_TOKEN ? '(set)' : '(not set)',
+      REDIS_URL: process.env.REDIS_URL ? '(set)' : '(not set)',
+      OPENROUTER_API_KEY: process.env.OPENROUTER_API_KEY ? '(set)' : '(not set)',
       NODE_ENV: process.env.NODE_ENV ?? '(not set)',
       AWS_LAMBDA_FUNCTION_NAME: process.env.AWS_LAMBDA_FUNCTION_NAME ?? '(not set)',
     },
@@ -20,6 +22,7 @@ export async function GET() {
 
 function getMode(): string {
   if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) return 'kv';
+  if (process.env.REDIS_URL) return 'kv (redis-url)';
   if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.VERCEL_ENV) return 'tmpfile';
   return 'file';
 }
