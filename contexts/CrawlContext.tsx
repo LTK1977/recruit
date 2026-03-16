@@ -76,7 +76,8 @@ export function CrawlProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const startCrawl = useCallback((options?: { forceNew?: boolean }) => {
-    runCrawl(options);
+    // 수동 실행 시 항상 forceNew로 시작 (오늘 캐시 무시)
+    runCrawl({ forceNew: true, ...options });
   }, [runCrawl]);
 
   const stopCrawl = useCallback(() => {
