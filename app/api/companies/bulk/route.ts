@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import * as XLSX from 'xlsx';
 import { addCompaniesBulk } from '@/lib/storage';
+import { generateSearchTerms } from '@/lib/constants';
 
 interface ParsedRow {
   name: string;
@@ -86,7 +87,7 @@ export async function POST(request: NextRequest) {
       aliases: row.aliases,
       searchTerms: row.searchTerms.length > 0
         ? row.searchTerms
-        : [`${row.name} AI`, `${row.name} 인공지능`, `${row.name} 데이터`],
+        : generateSearchTerms(row.name),
       active: true,
       notes: row.notes,
       careerPageUrl: row.careerPageUrl,
