@@ -29,20 +29,14 @@ export async function PATCH(request: NextRequest) {
   const id = searchParams.get('id');
   const action = searchParams.get('action');
 
-  // 전체 기업 검색어 일괄 재생성 (한 번에 저장)
+  // 전체 기업 검색어 일괄 재생성 (강제, 한 번에 저장)
   if (action === 'regenerate-search-terms') {
     const list = await getCompanies();
     let updated = 0;
     for (const company of list.companies) {
       const newTerms = generateSearchTerms(company.name);
-      const oldTerms = company.searchTerms;
-      const isDefault = oldTerms.length <= 4 && oldTerms.some(t =>
-        t.includes(' AI') || t.includes(' 인공지능') || t.includes(' 데이터')
-      );
-      if (isDefault || oldTerms.length === 0) {
-        company.searchTerms = newTerms;
-        updated++;
-      }
+      company.searchTerms = newTerms;
+      updated++;
     }
     list.updatedAt = new Date().toISOString();
     await saveCompanies(list);
