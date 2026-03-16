@@ -1,7 +1,7 @@
 'use client';
 
-import { createContext, useContext, useState, useRef, useCallback, type ReactNode } from 'react';
-import { triggerFullCrawl, type CrawlResult } from '@/lib/api-client';
+import { createContext, useContext, useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
+import { triggerFullCrawl, getCrawlStatus, type CrawlResult } from '@/lib/api-client';
 import { toast } from 'sonner';
 
 interface CrawlContextType {
@@ -30,8 +30,9 @@ export function CrawlProvider({ children }: { children: ReactNode }) {
   const [progress, setProgress] = useState('');
   const [lastResult, setLastResult] = useState<CrawlResult | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const autoResumeChecked = useRef(false);
 
-  const startCrawl = useCallback((options?: { forceNew?: boolean }) => {
+  const runCrawl = useCallback((options?: { forceNew?: boolean }) => {
     if (abortRef.current) return; // 이미 진행 중
 
     const controller = new AbortController();
@@ -51,15 +52,16 @@ export function CrawlProvider({ children }: { children: ReactNode }) {
       controller.signal,
     )
       .then((result) => {
-        const p = result?.progress;
-        toast.success(
-          `크롤링 완료: ${p?.cumulativePostings || result?.totalFound || 0}건 수집, ${p?.cumulativeNewPostings || result?.newPostings || 0}건 신규`,
-          { duration: 5000 },
-        );
-        setLastResult(result);
+        if (result) {
+          const p = result.progress;
+          toast.success(
+            `크롤링 완료: ${p?.cumulativePostings || result.totalFound || 0}건 수집, ${p?.cumulativeNewPostings || result.newPostings || 0}건 신규`,
+            { duration: 5000 },
+          );
+          setLastResult(result);
+        }
       })
       .catch((err) => {
-        // AbortError는 사용자가 중지한 것이므로 에러 표시 안 함
         if (err instanceof DOMException && err.name === 'AbortError') {
           toast.info('크롤링이 중지되었습니다.', { duration: 3000 });
         } else {
@@ -73,11 +75,62 @@ export function CrawlProvider({ children }: { children: ReactNode }) {
       });
   }, []);
 
+  const startCrawl = useCallback((options?: { forceNew?: boolean }) => {
+    runCrawl(options);
+  }, [runCrawl]);
+
   const stopCrawl = useCallback(() => {
     if (abortRef.current) {
       abortRef.current.abort();
     }
   }, []);
+
+  // 페이지 로드 시 미완료 크롤링 자동 감지 → 자동 재개
+  useEffect(() => {
+    if (autoResumeChecked.current) return;
+    autoResumeChecked.current = true;
+
+    getCrawlStatus()
+      .then((status) => {
+        const prog = status.progress as { isComplete?: boolean; completedCompanyIds?: string[]; totalCompanies?: number; runCount?: number } | null;
+        if (prog && !prog.isComplete && prog.completedCompanyIds && prog.completedCompanyIds.length > 0) {
+          // 미완료 크롤링이 있으면 자동으로 이어서 실행
+          toast.info(
+            `미완료 크롤링 발견 (${prog.completedCompanyIds.length}/${prog.totalCompanies}개 기업). 자동으로 이어서 실행합니다.`,
+            { duration: 4000 },
+          );
+          // 잠시 대기 후 재개 (UI가 먼저 렌더링되도록)
+          setTimeout(() => runCrawl(), 1500);
+        }
+      })
+      .catch(() => {
+        // 실패해도 무시 (첫 로드 시 서버가 아직 준비되지 않을 수 있음)
+      });
+  }, [runCrawl]);
+
+  // 브라우저 visibility change 감지 — PC 절전 복귀 시 진행 중이던 크롤링 상태 확인
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible' && !abortRef.current) {
+        // 크롤링이 진행 중이 아닐 때만 서버 상태 확인
+        getCrawlStatus()
+          .then((status) => {
+            const prog = status.progress as { isComplete?: boolean; completedCompanyIds?: string[]; totalCompanies?: number } | null;
+            if (prog && !prog.isComplete && prog.completedCompanyIds && prog.completedCompanyIds.length > 0) {
+              toast.info(
+                `미완료 크롤링 발견 (${prog.completedCompanyIds.length}/${prog.totalCompanies}개 기업). 자동으로 이어서 실행합니다.`,
+                { duration: 4000 },
+              );
+              setTimeout(() => runCrawl(), 1500);
+            }
+          })
+          .catch(() => {});
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
+  }, [runCrawl]);
 
   return (
     <CrawlContext.Provider value={{ isCrawling, progress, lastResult, startCrawl, stopCrawl }}>

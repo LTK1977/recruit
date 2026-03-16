@@ -85,7 +85,7 @@ export async function triggerCrawlBatch(options?: { forceNew?: boolean }, signal
 /**
  * 전체 크롤링 실행 (자동 이어하기).
  * 모든 기업이 처리될 때까지 배치를 자동으로 반복 호출.
- * onProgress 콜백으로 실시간 진행 상태를 전달.
+ * 네트워크 오류 발생 시 자동 재시도 (PC 절전 복귀 대응).
  * signal을 전달하면 AbortController로 중단 가능.
  */
 export async function triggerFullCrawl(
@@ -95,20 +95,37 @@ export async function triggerFullCrawl(
 ): Promise<CrawlResult> {
   let lastResult: CrawlResult | null = null;
   let isFirst = true;
+  let retryCount = 0;
+  const MAX_RETRIES = 30; // 최대 30회 재시도 (절전 복귀 대기)
 
   while (true) {
     if (signal?.aborted) break;
 
-    const result = await triggerCrawlBatch(isFirst ? options : undefined, signal);
-    lastResult = result;
-    isFirst = false;
+    try {
+      const result = await triggerCrawlBatch(isFirst ? options : undefined, signal);
+      lastResult = result;
+      isFirst = false;
+      retryCount = 0; // 성공 시 재시도 카운트 초기화
 
-    if (onProgress) onProgress(result);
+      if (onProgress) onProgress(result);
 
-    if (result.isComplete) break;
+      if (result.isComplete) break;
 
-    // 다음 배치 전 짧은 대기 (서버 부하 방지)
-    await new Promise(r => setTimeout(r, 1000));
+      // 다음 배치 전 짧은 대기 (서버 부하 방지)
+      await new Promise(r => setTimeout(r, 1000));
+    } catch (err) {
+      // AbortError는 사용자 중지 → 즉시 throw
+      if (err instanceof DOMException && err.name === 'AbortError') throw err;
+      if (signal?.aborted) break;
+
+      retryCount++;
+      if (retryCount > MAX_RETRIES) throw err;
+
+      // 네트워크 오류 시 점진적 대기 후 재시도 (3초 → 5초 → 10초, 최대 10초)
+      const delay = Math.min(3000 * Math.pow(1.5, retryCount - 1), 10000);
+      console.log(`[crawl] 네트워크 오류, ${(delay / 1000).toFixed(0)}초 후 재시도 (${retryCount}/${MAX_RETRIES})`, err);
+      await new Promise(r => setTimeout(r, delay));
+    }
   }
 
   return lastResult!;
