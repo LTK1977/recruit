@@ -6,17 +6,15 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PlatformBadge } from '@/components/recruit/PlatformBadge';
-import { Play, History, ChevronDown, ChevronUp, AlertCircle, Loader2 } from 'lucide-react';
-import { triggerFullCrawl, type CrawlResult } from '@/lib/api-client';
+import { Play, History, ChevronDown, ChevronUp, AlertCircle, Loader2, Square } from 'lucide-react';
+import { useCrawl } from '@/contexts/CrawlContext';
 import type { CrawlSession } from '@/types/crawl';
-import { toast } from 'sonner';
 
 export default function CrawlLogPage() {
   const [sessions, setSessions] = useState<CrawlSession[]>([]);
   const [loading, setLoading] = useState(true);
-  const [crawling, setCrawling] = useState(false);
-  const [crawlProgress, setCrawlProgress] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const { isCrawling, progress, lastResult, startCrawl, stopCrawl } = useCrawl();
 
   const loadLog = useCallback(async () => {
     try {
@@ -32,31 +30,19 @@ export default function CrawlLogPage() {
 
   useEffect(() => { loadLog(); }, [loadLog]);
 
-  const handleCrawl = async () => {
-    setCrawling(true);
-    setCrawlProgress('크롤링 시작...');
-    try {
-      const result = await triggerFullCrawl((progress: CrawlResult) => {
-        const p = progress.progress;
-        if (p) {
-          setCrawlProgress(`${p.completedCompanies}/${p.totalCompanies}개 기업 (배치 #${p.runCount})`);
-        }
-        // 매 배치마다 이력 리로드
-        loadLog();
-      });
-      const p = result.progress;
-      toast.success(
-        `크롤링 완료: ${p ? p.cumulativePostings : result.totalFound}건 수집, ${p ? p.cumulativeNewPostings : result.newPostings}건 신규`
-      );
-      await loadLog();
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : '크롤링 실패');
-      await loadLog();
-    } finally {
-      setCrawling(false);
-      setCrawlProgress('');
+  // 크롤링 배치마다 이력 새로고침
+  useEffect(() => {
+    if (lastResult) {
+      loadLog();
     }
-  };
+  }, [lastResult, loadLog]);
+
+  // 크롤링 완료 시에도 이력 새로고침
+  useEffect(() => {
+    if (!isCrawling) {
+      loadLog();
+    }
+  }, [isCrawling, loadLog]);
 
   const statusColor = (status: string) => {
     switch (status) {
@@ -84,13 +70,20 @@ export default function CrawlLogPage() {
           <p className="text-sm text-muted-foreground mt-1">크롤링 실행 기록과 결과를 확인하세요</p>
         </div>
         <div className="flex items-center gap-3">
-          {crawling && crawlProgress && (
-            <span className="text-sm text-muted-foreground">{crawlProgress}</span>
+          {isCrawling && progress && (
+            <span className="text-sm text-muted-foreground">{progress}</span>
           )}
-          <Button onClick={handleCrawl} disabled={crawling} size="sm">
-            {crawling ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Play className="h-4 w-4 mr-1.5" />}
-            {crawling ? '크롤링 중...' : '크롤링 실행'}
-          </Button>
+          {isCrawling ? (
+            <Button onClick={stopCrawl} variant="destructive" size="sm">
+              <Square className="h-4 w-4 mr-1.5 fill-current" />
+              크롤링 중지
+            </Button>
+          ) : (
+            <Button onClick={() => startCrawl()} size="sm">
+              <Play className="h-4 w-4 mr-1.5" />
+              크롤링 실행
+            </Button>
+          )}
         </div>
       </div>
 

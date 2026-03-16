@@ -2,8 +2,9 @@
 
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { LayoutDashboard, FileText, Building2, History, Radar } from 'lucide-react';
+import { LayoutDashboard, FileText, Building2, History, Radar, Loader2, Square } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useCrawl } from '@/contexts/CrawlContext';
 
 const navItems = [
   { href: '/dashboard', label: '대시보드', icon: LayoutDashboard },
@@ -14,6 +15,7 @@ const navItems = [
 
 export function Sidebar() {
   const pathname = usePathname();
+  const { isCrawling, progress, stopCrawl } = useCrawl();
 
   return (
     <aside className="w-56 shrink-0 border-r border-border bg-sidebar flex flex-col">
@@ -42,6 +44,26 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      {/* 크롤링 진행 상태 */}
+      {isCrawling && (
+        <div className="mx-2 mb-2 rounded-lg border border-blue-500/30 bg-blue-500/10 p-3 space-y-2">
+          <div className="flex items-center gap-2">
+            <Loader2 className="h-3.5 w-3.5 text-blue-400 animate-spin flex-shrink-0" />
+            <span className="text-xs font-medium text-blue-400">크롤링 진행 중</span>
+          </div>
+          {progress && (
+            <p className="text-xs text-blue-300/80 pl-5.5">{progress}</p>
+          )}
+          <button
+            onClick={stopCrawl}
+            className="flex items-center gap-1.5 text-xs text-red-400 hover:text-red-300 transition-colors pl-0.5 cursor-pointer"
+          >
+            <Square className="h-3 w-3 fill-current" />
+            중지
+          </button>
+        </div>
+      )}
 
       <div className="px-4 py-3 border-t border-border text-xs text-muted-foreground">
         내부 모니터링 도구

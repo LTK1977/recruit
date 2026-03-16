@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Noto_Sans_KR } from 'next/font/google';
 import { Toaster } from '@/components/ui/sonner';
 import { Sidebar } from '@/components/recruit/Sidebar';
+import { CrawlProvider } from '@/contexts/CrawlContext';
 import './globals.css';
 
 const notoSansKR = Noto_Sans_KR({
@@ -23,11 +24,13 @@ export default function RootLayout({
   return (
     <html lang="ko" className="dark">
       <body className={`${notoSansKR.variable} antialiased`}>
-        <div className="flex min-h-dvh">
-          <Sidebar />
-          <main className="flex-1 overflow-auto">{children}</main>
-        </div>
-        <Toaster position="bottom-right" />
+        <CrawlProvider>
+          <div className="flex min-h-dvh">
+            <Sidebar />
+            <main className="flex-1 overflow-auto">{children}</main>
+          </div>
+          <Toaster position="bottom-right" />
+        </CrawlProvider>
       </body>
     </html>
   );

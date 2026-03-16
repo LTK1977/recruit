@@ -70,11 +70,12 @@ export interface CrawlResult {
 }
 
 /** 단일 배치 크롤링 실행 */
-export async function triggerCrawlBatch(options?: { forceNew?: boolean }): Promise<CrawlResult> {
+export async function triggerCrawlBatch(options?: { forceNew?: boolean }, signal?: AbortSignal): Promise<CrawlResult> {
   const res = await fetch(`${BASE}/api/crawl`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(options || {}),
+    signal,
   });
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || '크롤링 실패');
@@ -85,16 +86,20 @@ export async function triggerCrawlBatch(options?: { forceNew?: boolean }): Promi
  * 전체 크롤링 실행 (자동 이어하기).
  * 모든 기업이 처리될 때까지 배치를 자동으로 반복 호출.
  * onProgress 콜백으로 실시간 진행 상태를 전달.
+ * signal을 전달하면 AbortController로 중단 가능.
  */
 export async function triggerFullCrawl(
   onProgress?: (progress: CrawlResult) => void,
   options?: { forceNew?: boolean },
+  signal?: AbortSignal,
 ): Promise<CrawlResult> {
   let lastResult: CrawlResult | null = null;
   let isFirst = true;
 
   while (true) {
-    const result = await triggerCrawlBatch(isFirst ? options : undefined);
+    if (signal?.aborted) break;
+
+    const result = await triggerCrawlBatch(isFirst ? options : undefined, signal);
     lastResult = result;
     isFirst = false;
 
