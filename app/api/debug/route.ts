@@ -1,20 +1,22 @@
 import { NextResponse } from 'next/server';
-import { Redis } from '@upstash/redis';
+import IORedis from 'ioredis';
 
 export async function GET() {
   let redisTest = 'skipped';
 
   // Redis 연결 테스트
-  if (process.env.REDIS_URL) {
+  const redisUrl = process.env.REDIS_URL || process.env.KV_URL;
+  if (redisUrl) {
     try {
-      const url = new URL(process.env.REDIS_URL);
-      const redis = new Redis({
-        url: `https://${url.hostname}`,
-        token: url.password,
+      const redis = new IORedis(redisUrl, {
+        connectTimeout: 5000,
+        commandTimeout: 5000,
+        maxRetriesPerRequest: 1,
       });
       await redis.set('debug:test', 'ok');
       const val = await redis.get('debug:test');
       redisTest = val === 'ok' ? 'connected' : `unexpected: ${val}`;
+      await redis.quit();
     } catch (err) {
       redisTest = `error: ${err instanceof Error ? err.message : String(err)}`;
     }

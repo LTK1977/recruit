@@ -27,31 +27,24 @@ function getStorageMode(): StorageMode {
 }
 
 // ============================================================
-// KV helpers (Upstash Redis via REDIS_URL 또는 @vercel/kv)
+// KV helpers (ioredis TCP 연결 via REDIS_URL)
 // ============================================================
-import { Redis } from '@upstash/redis';
+import IORedis from 'ioredis';
 
-let _redis: Redis | null = null;
+let _redis: IORedis | null = null;
 
-function getRedisClient(): Redis {
-  if (_redis) return _redis;
+function getRedisClient(): IORedis {
+  if (_redis && _redis.status === 'ready') return _redis;
 
-  if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
-    // 기존 @vercel/kv 방식 호환
-    _redis = new Redis({
-      url: process.env.KV_REST_API_URL,
-      token: process.env.KV_REST_API_TOKEN,
-    });
-  } else if (process.env.REDIS_URL) {
-    // Vercel Redis: REDIS_URL에서 REST URL과 토큰 추출
-    // 형식: rediss://default:TOKEN@HOST:PORT
-    const url = new URL(process.env.REDIS_URL);
-    const restUrl = `https://${url.hostname}`;
-    const token = url.password;
-    _redis = new Redis({ url: restUrl, token });
-  } else {
-    throw new Error('Redis configuration not found');
-  }
+  const url = process.env.REDIS_URL || process.env.KV_URL;
+  if (!url) throw new Error('Redis URL not found');
+
+  _redis = new IORedis(url, {
+    maxRetriesPerRequest: 3,
+    lazyConnect: false,
+    connectTimeout: 5000,
+    commandTimeout: 5000,
+  });
 
   return _redis;
 }
@@ -59,8 +52,9 @@ function getRedisClient(): Redis {
 async function kvGet<T>(key: string, defaultValue: T): Promise<T> {
   try {
     const redis = getRedisClient();
-    const val = await redis.get<T>(key);
-    return val ?? defaultValue;
+    const val = await redis.get(key);
+    if (val === null) return defaultValue;
+    return JSON.parse(val) as T;
   } catch (err) {
     console.error(`[KV] get ${key} failed:`, err);
     return defaultValue;
@@ -69,7 +63,7 @@ async function kvGet<T>(key: string, defaultValue: T): Promise<T> {
 
 async function kvSet<T>(key: string, data: T): Promise<void> {
   const redis = getRedisClient();
-  await redis.set(key, data);
+  await redis.set(key, JSON.stringify(data));
 }
 
 async function kvKeys(pattern: string): Promise<string[]> {
@@ -77,9 +71,9 @@ async function kvKeys(pattern: string): Promise<string[]> {
   const keys: string[] = [];
   let cursor = '0';
   do {
-    const result = await redis.scan(Number(cursor), { match: pattern, count: 100 });
-    cursor = String(result[0]);
-    keys.push(...(result[1] as string[]));
+    const [nextCursor, batch] = await redis.scan(cursor, 'MATCH', pattern, 'COUNT', '100');
+    cursor = nextCursor;
+    keys.push(...batch);
   } while (cursor !== '0');
   return keys;
 }
