@@ -5,6 +5,7 @@ export const PLATFORMS: { key: Platform; label: string; color: string }[] = [
   { key: 'jobkorea', label: '잡코리아', color: 'bg-green-500' },
   { key: 'catch', label: '캐치', color: 'bg-orange-500' },
   { key: 'wanted', label: '원티드', color: 'bg-purple-500' },
+  { key: 'career', label: '채용페이지', color: 'bg-pink-500' },
 ];
 
 export const AI_SEARCH_KEYWORDS = [

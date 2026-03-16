@@ -9,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Plus, Pencil, Trash2, Building2, Search, Upload, FileSpreadsheet, Download } from 'lucide-react';
+import { Plus, Pencil, Trash2, Building2, Search, Upload, FileSpreadsheet, Download, Globe } from 'lucide-react';
 import { fetchCompanies, createCompany, patchCompany, deleteCompany, bulkUploadCompanies } from '@/lib/api-client';
 import type { Company } from '@/types/company';
 import { toast } from 'sonner';
@@ -19,9 +19,10 @@ interface FormData {
   aliases: string;
   searchTerms: string;
   notes: string;
+  careerPageUrl: string;
 }
 
-const emptyForm: FormData = { name: '', aliases: '', searchTerms: '', notes: '' };
+const emptyForm: FormData = { name: '', aliases: '', searchTerms: '', notes: '', careerPageUrl: '' };
 
 export default function CompaniesPage() {
   const [companies, setCompanies] = useState<Company[]>([]);
@@ -58,6 +59,7 @@ export default function CompaniesPage() {
       aliases: c.aliases.join(', '),
       searchTerms: c.searchTerms.join(', '),
       notes: c.notes || '',
+      careerPageUrl: c.careerPageUrl || '',
     });
     setDialogOpen(true);
   };
@@ -73,10 +75,10 @@ export default function CompaniesPage() {
 
     try {
       if (editingId) {
-        await patchCompany(editingId, { name: form.name, aliases, searchTerms, notes: form.notes });
+        await patchCompany(editingId, { name: form.name, aliases, searchTerms, notes: form.notes, careerPageUrl: form.careerPageUrl || undefined });
         toast.success('기업 정보가 수정되었습니다.');
       } else {
-        await createCompany({ name: form.name, aliases, searchTerms, notes: form.notes });
+        await createCompany({ name: form.name, aliases, searchTerms, notes: form.notes, careerPageUrl: form.careerPageUrl || undefined });
         toast.success(`${form.name} 기업이 등록되었습니다.`);
       }
       setDialogOpen(false);
@@ -135,7 +137,7 @@ export default function CompaniesPage() {
   };
 
   const downloadTemplate = () => {
-    const csvContent = '\uFEFF기업명,별칭,검색어,메모\nHD현대,"HD Hyundai, 현대중공업","HD현대 AI, HD현대 데이터",조선업\n삼성전자,"Samsung Electronics, 삼성",,반도체';
+    const csvContent = '\uFEFF기업명,별칭,검색어,메모,채용페이지\nHD현대,"HD Hyundai, 현대중공업","HD현대 AI, HD현대 데이터",조선업,https://www.hdhhicare.com/careers\n삼성전자,"Samsung Electronics, 삼성",,반도체,https://www.samsung.com/sec/careers/';
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -201,6 +203,12 @@ export default function CompaniesPage() {
                   <Search className="h-3 w-3" />
                   {c.searchTerms.join(' | ')}
                 </div>
+                {c.careerPageUrl && (
+                  <div className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Globe className="h-3 w-3 text-pink-400" />
+                    <a href={c.careerPageUrl} target="_blank" rel="noopener noreferrer" className="hover:underline truncate max-w-[250px]">{c.careerPageUrl}</a>
+                  </div>
+                )}
                 {c.notes && (
                   <p className="text-xs text-muted-foreground">{c.notes}</p>
                 )}
@@ -256,6 +264,7 @@ export default function CompaniesPage() {
                 <li>• <strong>별칭</strong> (선택): 쉼표로 구분하여 여러 개 입력 가능</li>
                 <li>• <strong>검색어</strong> (선택): 비워두면 자동 생성됩니다</li>
                 <li>• <strong>메모</strong> (선택): 참고사항</li>
+                <li>• <strong>채용페이지</strong> (선택): 기업 자체 채용 사이트 URL</li>
                 <li>• 기업명만 있는 단순 목록도 지원됩니다</li>
                 <li>• 이미 등록된 기업명은 자동으로 건너뜁니다</li>
               </ul>
@@ -290,6 +299,11 @@ export default function CompaniesPage() {
               <Label htmlFor="searchTerms">검색어 (쉼표 구분, 비워두면 자동 생성)</Label>
               <Input id="searchTerms" value={form.searchTerms} onChange={(e) => setForm({ ...form, searchTerms: e.target.value })} placeholder="예: HD현대 AI, HD현대 데이터" />
               <p className="text-xs text-muted-foreground mt-1">비워두면 &quot;기업명 AI&quot;, &quot;기업명 인공지능&quot; 등이 자동 생성됩니다.</p>
+            </div>
+            <div>
+              <Label htmlFor="careerPageUrl">채용 페이지 URL (선택)</Label>
+              <Input id="careerPageUrl" value={form.careerPageUrl} onChange={(e) => setForm({ ...form, careerPageUrl: e.target.value })} placeholder="https://careers.example.com/jobs" />
+              <p className="text-xs text-muted-foreground mt-1">기업 자체 채용 페이지 URL을 입력하면 AI가 채용 공고를 분석합니다.</p>
             </div>
             <div>
               <Label htmlFor="notes">메모</Label>

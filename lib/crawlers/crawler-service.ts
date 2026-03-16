@@ -6,6 +6,7 @@ import { saraminCrawler } from './saramin';
 import { jobkoreaCrawler } from './jobkorea';
 import { catchCrawler } from './catch-crawler';
 import { wantedCrawler } from './wanted';
+import { careerPageCrawler } from './career-page';
 
 export interface PlatformCrawler {
   platform: Platform;
@@ -17,6 +18,7 @@ const crawlers: PlatformCrawler[] = [
   jobkoreaCrawler,
   catchCrawler,
   wantedCrawler,
+  careerPageCrawler,
 ];
 
 export function getCrawlerByPlatform(platform: Platform): PlatformCrawler | undefined {

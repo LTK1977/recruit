@@ -6,6 +6,7 @@ export interface Company {
   active: boolean;
   addedAt: string;
   notes?: string;
+  careerPageUrl?: string;
 }
 
 export interface CompanyList {

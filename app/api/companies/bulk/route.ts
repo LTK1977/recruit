@@ -7,6 +7,7 @@ interface ParsedRow {
   aliases: string[];
   searchTerms: string[];
   notes: string;
+  careerPageUrl?: string;
 }
 
 function parseExcelBuffer(buffer: Buffer): ParsedRow[] {
@@ -38,10 +39,14 @@ function parseExcelBuffer(buffer: Buffer): ParsedRow[] {
       row['메모'] ?? row['notes'] ?? row['Notes'] ?? row['비고'] ?? row['참고'] ?? ''
     ).trim();
 
+    const careerPageUrl = String(
+      row['채용페이지'] ?? row['채용URL'] ?? row['채용사이트'] ?? row['careerPageUrl'] ?? row['career_url'] ?? row['CareerURL'] ?? ''
+    ).trim();
+
     const aliases = aliasRaw ? aliasRaw.split(/[,;|]/).map(s => s.trim()).filter(Boolean) : [];
     const searchTerms = searchRaw ? searchRaw.split(/[,;|]/).map(s => s.trim()).filter(Boolean) : [];
 
-    results.push({ name, aliases, searchTerms, notes });
+    results.push({ name, aliases, searchTerms, notes, careerPageUrl: careerPageUrl || undefined });
   }
 
   return results;
@@ -84,6 +89,7 @@ export async function POST(request: NextRequest) {
         : [`${row.name} AI`, `${row.name} 인공지능`, `${row.name} 데이터`],
       active: true,
       notes: row.notes,
+      careerPageUrl: row.careerPageUrl,
     }));
 
     const result = await addCompaniesBulk(items);

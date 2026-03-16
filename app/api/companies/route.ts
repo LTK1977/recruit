@@ -8,7 +8,7 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   const body = await request.json();
-  const { name, aliases = [], searchTerms = [], active = true, notes = '' } = body;
+  const { name, aliases = [], searchTerms = [], active = true, notes = '', careerPageUrl } = body;
 
   if (!name) {
     return NextResponse.json({ error: '기업명은 필수입니다.' }, { status: 400 });
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
     ? searchTerms
     : [`${name} AI`, `${name} 인공지능`, `${name} 데이터`];
 
-  const company = await addCompany({ name, aliases, searchTerms: terms, active, notes });
+  const company = await addCompany({ name, aliases, searchTerms: terms, active, notes, careerPageUrl: careerPageUrl || undefined });
   return NextResponse.json(company, { status: 201 });
 }
 

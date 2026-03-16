@@ -10,7 +10,7 @@ export async function fetchCompanies(): Promise<CompanyList> {
   return res.json();
 }
 
-export async function createCompany(data: { name: string; aliases?: string[]; searchTerms?: string[]; notes?: string }): Promise<Company> {
+export async function createCompany(data: { name: string; aliases?: string[]; searchTerms?: string[]; notes?: string; careerPageUrl?: string }): Promise<Company> {
   const res = await fetch(`${BASE}/api/companies`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

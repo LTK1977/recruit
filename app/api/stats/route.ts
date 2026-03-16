@@ -14,7 +14,7 @@ export async function GET() {
   // Collect last 7 days of postings
   const last7Days: { date: string; count: number }[] = [];
   const allPostings: JobPosting[] = [];
-  const byPlatform: Record<Platform, number> = { saramin: 0, jobkorea: 0, catch: 0, wanted: 0 };
+  const byPlatform: Record<Platform, number> = { saramin: 0, jobkorea: 0, catch: 0, wanted: 0, career: 0 };
   const byCompanyMap = new Map<string, number>();
 
   const postingsDir = path.join(process.cwd(), 'data', 'postings');

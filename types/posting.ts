@@ -1,10 +1,11 @@
-export type Platform = 'saramin' | 'jobkorea' | 'catch' | 'wanted';
+export type Platform = 'saramin' | 'jobkorea' | 'catch' | 'wanted' | 'career';
 
 export const PLATFORM_LABELS: Record<Platform, string> = {
   saramin: '사람인',
   jobkorea: '잡코리아',
   catch: '캐치',
   wanted: '원티드',
+  career: '채용페이지',
 };
 
 export interface JobPosting {

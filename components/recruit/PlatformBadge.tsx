@@ -8,6 +8,7 @@ const platformColors: Record<Platform, string> = {
   jobkorea: 'bg-green-500/15 text-green-400 border-green-500/30',
   catch: 'bg-orange-500/15 text-orange-400 border-orange-500/30',
   wanted: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
+  career: 'bg-pink-500/15 text-pink-400 border-pink-500/30',
 };
 
 export function PlatformBadge({ platform }: { platform: Platform }) {
