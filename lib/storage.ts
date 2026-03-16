@@ -69,7 +69,7 @@ async function kvGet<T>(key: string, defaultValue: T): Promise<T> {
 
 async function kvSet<T>(key: string, data: T): Promise<void> {
   const redis = getRedisClient();
-  await redis.set(key, JSON.stringify(data));
+  await redis.set(key, data);
 }
 
 async function kvKeys(pattern: string): Promise<string[]> {

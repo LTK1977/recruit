@@ -1,8 +1,28 @@
 import { NextResponse } from 'next/server';
+import { Redis } from '@upstash/redis';
 
 export async function GET() {
+  let redisTest = 'skipped';
+
+  // Redis 연결 테스트
+  if (process.env.REDIS_URL) {
+    try {
+      const url = new URL(process.env.REDIS_URL);
+      const redis = new Redis({
+        url: `https://${url.hostname}`,
+        token: url.password,
+      });
+      await redis.set('debug:test', 'ok');
+      const val = await redis.get('debug:test');
+      redisTest = val === 'ok' ? 'connected' : `unexpected: ${val}`;
+    } catch (err) {
+      redisTest = `error: ${err instanceof Error ? err.message : String(err)}`;
+    }
+  }
+
   const info = {
     storageMode: getMode(),
+    redisTest,
     env: {
       VERCEL: process.env.VERCEL ?? '(not set)',
       VERCEL_ENV: process.env.VERCEL_ENV ?? '(not set)',
