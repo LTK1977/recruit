@@ -151,13 +151,18 @@ export default function CompaniesPage() {
     const controller = new AbortController();
     discoverAbortRef.current = controller;
     setDiscovering(true);
-    setDiscoverProgress('시작 중...');
+    setDiscoverProgress(`0/${withoutUrl}개 처리 중... (AI 분석 대기)`);
 
     try {
       const result = await triggerFullDiscover(
         (r: DiscoverResult) => {
           if (r.progress) {
-            setDiscoverProgress(`${r.progress.completedCompanies}/${r.progress.totalCompanies}개 처리 (${r.progress.discovered}개 발견)`);
+            const pct = r.progress.totalCompanies > 0
+              ? Math.round((r.progress.completedCompanies / r.progress.totalCompanies) * 100)
+              : 0;
+            setDiscoverProgress(
+              `${r.progress.completedCompanies}/${r.progress.totalCompanies}개 처리 (${r.progress.discovered}개 발견) — ${pct}%`
+            );
           }
         },
         { forceNew: true },
@@ -206,6 +211,7 @@ export default function CompaniesPage() {
         <div className="flex items-center gap-2">
           {discovering ? (
             <div className="flex items-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin text-primary" />
               <span className="text-xs text-muted-foreground">{discoverProgress}</span>
               <Button variant="destructive" size="sm" onClick={stopDiscover}>
                 <Square className="h-4 w-4 mr-1.5 fill-current" />
