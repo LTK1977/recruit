@@ -152,6 +152,57 @@ export async function getCrawlStatus(): Promise<{ latest: unknown; isRunning: bo
   return res.json();
 }
 
+// === Discover Career URLs ===
+export interface DiscoverResult {
+  status: string;
+  isComplete: boolean;
+  results?: { companyName: string; url: string | null; verified: boolean }[];
+  progress?: {
+    completedCompanies: number;
+    totalCompanies: number;
+    discovered: number;
+    failed: number;
+    runCount: number;
+  };
+  error?: string;
+}
+
+export async function triggerDiscoverBatch(options?: { forceNew?: boolean }, signal?: AbortSignal): Promise<DiscoverResult> {
+  const res = await fetch(`${BASE}/api/companies/discover`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(options || {}),
+    signal,
+  });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || '탐색 실패');
+  return data;
+}
+
+export async function triggerFullDiscover(
+  onProgress?: (result: DiscoverResult) => void,
+  options?: { forceNew?: boolean },
+  signal?: AbortSignal,
+): Promise<DiscoverResult> {
+  let lastResult: DiscoverResult | null = null;
+  let isFirst = true;
+
+  while (true) {
+    if (signal?.aborted) break;
+
+    const result = await triggerDiscoverBatch(isFirst ? options : undefined, signal);
+    lastResult = result;
+    isFirst = false;
+
+    if (onProgress) onProgress(result);
+    if (result.isComplete) break;
+
+    await new Promise(r => setTimeout(r, 1000));
+  }
+
+  return lastResult!;
+}
+
 // === Postings ===
 export async function fetchPostings(params: Record<string, string>): Promise<{
   postings: JobPosting[];

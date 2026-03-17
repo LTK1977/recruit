@@ -9,10 +9,11 @@ import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Plus, Pencil, Trash2, Building2, Search, Upload, FileSpreadsheet, Download, Globe } from 'lucide-react';
-import { fetchCompanies, createCompany, patchCompany, deleteCompany, bulkUploadCompanies } from '@/lib/api-client';
+import { Plus, Pencil, Trash2, Building2, Search, Upload, FileSpreadsheet, Download, Globe, Sparkles, Loader2, Square } from 'lucide-react';
+import { fetchCompanies, createCompany, patchCompany, deleteCompany, bulkUploadCompanies, triggerFullDiscover, type DiscoverResult } from '@/lib/api-client';
 import type { Company } from '@/types/company';
 import { toast } from 'sonner';
+import { useRef } from 'react';
 
 interface FormData {
   name: string;
@@ -32,6 +33,9 @@ export default function CompaniesPage() {
   const [uploading, setUploading] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [form, setForm] = useState<FormData>(emptyForm);
+  const [discovering, setDiscovering] = useState(false);
+  const [discoverProgress, setDiscoverProgress] = useState('');
+  const discoverAbortRef = useRef<AbortController | null>(null);
 
   const loadCompanies = useCallback(async () => {
     try {
@@ -136,6 +140,51 @@ export default function CompaniesPage() {
     }
   };
 
+  const handleDiscover = async () => {
+    const withoutUrl = companies.filter(c => c.active && !c.careerPageUrl).length;
+    if (withoutUrl === 0) {
+      toast.info('채용페이지 URL이 없는 기업이 없습니다.');
+      return;
+    }
+    if (!confirm(`${withoutUrl}개 기업의 채용페이지를 AI로 탐색합니다. 진행하시겠습니까?`)) return;
+
+    const controller = new AbortController();
+    discoverAbortRef.current = controller;
+    setDiscovering(true);
+    setDiscoverProgress('시작 중...');
+
+    try {
+      const result = await triggerFullDiscover(
+        (r: DiscoverResult) => {
+          if (r.progress) {
+            setDiscoverProgress(`${r.progress.completedCompanies}/${r.progress.totalCompanies}개 처리 (${r.progress.discovered}개 발견)`);
+          }
+        },
+        { forceNew: true },
+        controller.signal,
+      );
+      const d = result?.progress?.discovered || 0;
+      toast.success(`채용페이지 탐색 완료: ${d}개 기업의 URL을 발견했습니다.`, { duration: 5000 });
+      await loadCompanies();
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        toast.info('탐색이 중지되었습니다.');
+      } else {
+        toast.error(err instanceof Error ? err.message : '탐색 실패');
+      }
+    } finally {
+      discoverAbortRef.current = null;
+      setDiscovering(false);
+      setDiscoverProgress('');
+    }
+  };
+
+  const stopDiscover = () => {
+    if (discoverAbortRef.current) {
+      discoverAbortRef.current.abort();
+    }
+  };
+
   const downloadTemplate = () => {
     const csvContent = '\uFEFF기업명,별칭,검색어,메모,채용페이지\nHD현대,"HD Hyundai, 현대중공업","HD현대 AI, HD현대 데이터",조선업,https://www.hdhhicare.com/careers\n삼성전자,"Samsung Electronics, 삼성",,반도체,https://www.samsung.com/sec/careers/';
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8' });
@@ -155,6 +204,20 @@ export default function CompaniesPage() {
           <p className="text-sm text-muted-foreground mt-1">AI 채용을 모니터링할 고객사를 등록하세요</p>
         </div>
         <div className="flex items-center gap-2">
+          {discovering ? (
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-muted-foreground">{discoverProgress}</span>
+              <Button variant="destructive" size="sm" onClick={stopDiscover}>
+                <Square className="h-4 w-4 mr-1.5 fill-current" />
+                중지
+              </Button>
+            </div>
+          ) : (
+            <Button variant="outline" size="sm" onClick={handleDiscover} disabled={companies.length === 0}>
+              <Sparkles className="h-4 w-4 mr-1.5" />
+              채용페이지 자동 탐색
+            </Button>
+          )}
           <Button variant="outline" size="sm" onClick={() => setUploadDialogOpen(true)}>
             <Upload className="h-4 w-4 mr-1.5" />
             일괄 등록
