@@ -1,7 +1,7 @@
 import type { JobPosting, Platform } from '@/types/posting';
 import type { Company } from '@/types/company';
 import type { CrawlSession, PlatformCrawlResult, CrawlProgress } from '@/types/crawl';
-import { generateId, todayString } from '@/lib/constants';
+import { generateId, todayString, AI_SEARCH_KEYWORDS } from '@/lib/constants';
 import { saraminCrawler } from './saramin';
 import { jobkoreaCrawler } from './jobkorea';
 import { catchCrawler } from './catch-crawler';
@@ -27,6 +27,12 @@ export function getCrawlerByPlatform(platform: Platform): PlatformCrawler | unde
 
 // 타임아웃 안전 마진: 저장할 시간 확보
 const MAX_CRAWL_MS = process.env.VERCEL ? 45000 : 300000;
+
+/** 공고 제목/카테고리/요건에 AI 관련 키워드가 포함되어 있는지 확인 */
+function isAIRelated(posting: JobPosting): boolean {
+  const text = `${posting.title} ${posting.category} ${posting.requirements} ${posting.preferredQualifications}`.toLowerCase();
+  return AI_SEARCH_KEYWORDS.some(kw => text.includes(kw.toLowerCase()));
+}
 
 export interface CrawlBatchResult {
   session: CrawlSession;
@@ -99,7 +105,9 @@ export async function runCrawlBatch(
       };
 
       try {
-        const postings = await crawler.crawl(company);
+        const rawPostings = await crawler.crawl(company);
+        // AI 관련 키워드가 포함된 공고만 필터링
+        const postings = rawPostings.filter(isAIRelated);
         result.postingsFound = postings.length;
 
         for (const p of postings) {
