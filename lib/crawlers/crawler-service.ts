@@ -28,16 +28,19 @@ export function getCrawlerByPlatform(platform: Platform): PlatformCrawler | unde
 // 타임아웃 안전 마진: 저장할 시간 확보
 const MAX_CRAWL_MS = process.env.VERCEL ? 45000 : 300000;
 
-/** 공고 제목/카테고리/요건에 AI 관련 키워드가 포함되어 있는지 확인 */
+/**
+ * 공고 제목에 AI 관련 키워드가 포함되어 있는지 확인.
+ * 제목(title)만 검사하여 오매칭 최소화.
+ */
+const AI_TITLE_KEYWORDS = ['AI', '인공지능', 'LLM', 'GPT', '생성형', 'AX'];
+
 function isAIRelated(posting: JobPosting): boolean {
-  const text = `${posting.title} ${posting.category} ${posting.requirements} ${posting.preferredQualifications}`;
-  return AI_SEARCH_KEYWORDS.some(kw => {
+  const title = posting.title;
+  return AI_TITLE_KEYWORDS.some(kw => {
     if (/^[A-Za-z]+$/.test(kw)) {
-      // 영문 키워드(AI, ML, NLP 등): 단어 경계 매칭 (detail, maintain 등 오매칭 방지)
-      return new RegExp(`\\b${kw}\\b`, 'i').test(text);
+      return new RegExp(`\\b${kw}\\b`, 'i').test(title);
     }
-    // 한글 키워드(인공지능, 머신러닝 등): 단순 포함 검사
-    return text.includes(kw);
+    return title.includes(kw);
   });
 }
 
