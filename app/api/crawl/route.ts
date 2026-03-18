@@ -11,15 +11,7 @@ import type { CrawlSession } from '@/types/crawl';
 // Vercel 서버리스 함수 최대 실행 시간
 export const maxDuration = 60;
 
-let crawlInProgress = false;
-
 export async function POST(request: NextRequest) {
-  if (crawlInProgress) {
-    return NextResponse.json({ error: '크롤링이 이미 진행 중입니다.' }, { status: 409 });
-  }
-
-  crawlInProgress = true;
-
   try {
     const body = await request.json().catch(() => ({}));
     const forceNew = body.forceNew === true; // 강제 새 크롤링
@@ -43,7 +35,6 @@ export async function POST(request: NextRequest) {
           : '활성화된 기업이 없어 크롤링을 건너뛰었습니다.',
       };
       await appendCrawlSession(emptySession);
-      crawlInProgress = false;
       return NextResponse.json({
         sessionId: emptySession.id,
         status: 'completed',
@@ -65,7 +56,6 @@ export async function POST(request: NextRequest) {
 
     // 이미 완료된 경우
     if (previousProgress?.isComplete && previousProgress.date === todayString() && !forceNew) {
-      crawlInProgress = false;
       return NextResponse.json({
         status: 'completed',
         totalFound: previousProgress.totalPostingsFound,
@@ -92,8 +82,6 @@ export async function POST(request: NextRequest) {
     // 진행 상태 저장
     await saveCrawlProgress(progress);
 
-    crawlInProgress = false;
-
     return NextResponse.json({
       sessionId: session.id,
       status: session.status,
@@ -111,7 +99,6 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (err) {
-    crawlInProgress = false;
     console.error('[crawl] Error:', err);
 
     const errorSession: CrawlSession = {
@@ -144,11 +131,10 @@ export async function GET(request: NextRequest) {
   if (full === 'true') {
     return NextResponse.json({
       sessions: log.sessions,
-      isRunning: crawlInProgress,
       progress,
     });
   }
 
   const latest = log.sessions[0] || null;
-  return NextResponse.json({ latest, isRunning: crawlInProgress, progress });
+  return NextResponse.json({ latest, progress });
 }

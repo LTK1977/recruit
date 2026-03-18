@@ -2,6 +2,7 @@ import type { JobPosting, Platform } from '@/types/posting';
 import type { Company } from '@/types/company';
 import type { CrawlSession, PlatformCrawlResult, CrawlProgress } from '@/types/crawl';
 import { generateId, todayString, AI_SEARCH_KEYWORDS } from '@/lib/constants';
+import { saveCrawlProgress } from '@/lib/storage';
 import { saraminCrawler } from './saramin';
 import { jobkoreaCrawler } from './jobkorea';
 import { catchCrawler } from './catch-crawler';
@@ -146,6 +147,23 @@ export async function runCrawlBatch(
     // 이 기업 처리 완료
     completedIds.add(company.id);
     batchProcessed++;
+
+    // 기업 처리 후 중간 진행상태 저장 (클라이언트 폴링용)
+    // 매 기업마다 저장하면 부하가 크므로 5개마다 저장
+    if (batchProcessed % 5 === 0) {
+      try {
+        await saveCrawlProgress({
+          date: today,
+          completedCompanyIds: Array.from(completedIds),
+          totalCompanies: activeCompanies.length,
+          totalPostingsFound: (isResume ? previousProgress.totalPostingsFound : 0) + allPostings.length,
+          totalNewPostings: 0,
+          runCount,
+          lastRunAt: new Date().toISOString(),
+          isComplete: false,
+        });
+      } catch { /* 중간 저장 실패는 무시 */ }
+    }
   }
 
   // Deduplicate

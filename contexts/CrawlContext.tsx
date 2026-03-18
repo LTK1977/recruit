@@ -1,6 +1,6 @@
 'use client';
 
-import { createContext, useContext, useState, useRef, useCallback, useEffect, type ReactNode } from 'react';
+import { createContext, useContext, useState, useRef, useCallback, useEffect, type ReactNode, type RefObject } from 'react';
 import { triggerFullCrawl, getCrawlStatus, type CrawlResult } from '@/lib/api-client';
 import { toast } from 'sonner';
 
@@ -32,6 +32,34 @@ export function CrawlProvider({ children }: { children: ReactNode }) {
   const abortRef = useRef<AbortController | null>(null);
   const autoResumeChecked = useRef(false);
 
+  // 배치 진행 중 서버에서 중간 진행상태를 폴링
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const startPolling = useCallback(() => {
+    if (pollRef.current) return;
+    pollRef.current = setInterval(async () => {
+      try {
+        const status = await getCrawlStatus();
+        const prog = status.progress as {
+          completedCompanyIds?: string[];
+          totalCompanies?: number;
+          runCount?: number;
+          isComplete?: boolean;
+        } | null;
+        if (prog && prog.completedCompanyIds && prog.totalCompanies) {
+          setProgress(`${prog.completedCompanyIds.length}/${prog.totalCompanies}개 기업 처리 중...`);
+        }
+      } catch { /* 폴링 실패 무시 */ }
+    }, 5000); // 5초마다 폴링
+  }, []);
+
+  const stopPolling = useCallback(() => {
+    if (pollRef.current) {
+      clearInterval(pollRef.current);
+      pollRef.current = null;
+    }
+  }, []);
+
   const runCrawl = useCallback((options?: { forceNew?: boolean }) => {
     if (abortRef.current) return; // 이미 진행 중
 
@@ -39,6 +67,7 @@ export function CrawlProvider({ children }: { children: ReactNode }) {
     abortRef.current = controller;
     setIsCrawling(true);
     setProgress('시작 중...');
+    startPolling();
 
     triggerFullCrawl(
       (result: CrawlResult) => {
@@ -69,11 +98,12 @@ export function CrawlProvider({ children }: { children: ReactNode }) {
         }
       })
       .finally(() => {
+        stopPolling();
         abortRef.current = null;
         setIsCrawling(false);
         setProgress('');
       });
-  }, []);
+  }, [startPolling, stopPolling]);
 
   const startCrawl = useCallback((options?: { forceNew?: boolean }) => {
     // 수동 실행 시 항상 forceNew로 시작 (오늘 캐시 무시)
