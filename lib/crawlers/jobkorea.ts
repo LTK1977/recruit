@@ -3,6 +3,7 @@ import type { JobPosting } from '@/types/posting';
 import type { Company } from '@/types/company';
 import { hashPostingId, todayString } from '@/lib/constants';
 import { globalRateLimiter } from './rate-limiter';
+import { fetchWithTimeout } from './fetch-with-timeout';
 import type { PlatformCrawler } from './crawler-service';
 
 const BASE_URL = 'https://www.jobkorea.co.kr';
@@ -20,12 +21,13 @@ export const jobkoreaCrawler: PlatformCrawler = {
 
       try {
         const url = `${SEARCH_URL}${encodeURIComponent(term)}`;
-        const res = await fetch(url, {
+        const res = await fetchWithTimeout(url, {
           headers: {
             'User-Agent': USER_AGENT,
             'Accept-Language': 'ko-KR,ko;q=0.9',
             Accept: 'text/html,application/xhtml+xml',
           },
+          timeout: 10000,
         });
 
         if (!res.ok) {

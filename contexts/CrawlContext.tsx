@@ -37,7 +37,8 @@ export function CrawlProvider({ children }: { children: ReactNode }) {
 
   const startPolling = useCallback(() => {
     if (pollRef.current) return;
-    pollRef.current = setInterval(async () => {
+    // 즉시 1회 폴링 후 3초 간격 반복
+    const poll = async () => {
       try {
         const status = await getCrawlStatus();
         const prog = status.progress as {
@@ -47,10 +48,13 @@ export function CrawlProvider({ children }: { children: ReactNode }) {
           isComplete?: boolean;
         } | null;
         if (prog && prog.completedCompanyIds && prog.totalCompanies) {
-          setProgress(`${prog.completedCompanyIds.length}/${prog.totalCompanies}개 기업 처리 중...`);
+          const pct = Math.round((prog.completedCompanyIds.length / prog.totalCompanies) * 100);
+          setProgress(`${prog.completedCompanyIds.length}/${prog.totalCompanies}개 기업 (${pct}%) 처리 중...`);
         }
       } catch { /* 폴링 실패 무시 */ }
-    }, 5000); // 5초마다 폴링
+    };
+    poll(); // 즉시 실행
+    pollRef.current = setInterval(poll, 3000); // 3초마다 폴링
   }, []);
 
   const stopPolling = useCallback(() => {
@@ -73,7 +77,8 @@ export function CrawlProvider({ children }: { children: ReactNode }) {
       (result: CrawlResult) => {
         if (result.progress) {
           const p = result.progress;
-          setProgress(`${p.completedCompanies}/${p.totalCompanies}개 기업 (배치 #${p.runCount})`);
+          const pct = Math.round((p.completedCompanies / p.totalCompanies) * 100);
+          setProgress(`${p.completedCompanies}/${p.totalCompanies}개 기업 (${pct}%) — ${p.cumulativePostings}건 발견`);
         }
         setLastResult(result);
       },

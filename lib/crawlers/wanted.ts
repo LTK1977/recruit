@@ -3,6 +3,7 @@ import type { JobPosting } from '@/types/posting';
 import type { Company } from '@/types/company';
 import { hashPostingId, todayString } from '@/lib/constants';
 import { globalRateLimiter } from './rate-limiter';
+import { fetchWithTimeout } from './fetch-with-timeout';
 import type { PlatformCrawler } from './crawler-service';
 
 const BASE_URL = 'https://www.wanted.co.kr';
@@ -30,12 +31,13 @@ export const wantedCrawler: PlatformCrawler = {
       // Try internal API first
       try {
         const apiUrl = `https://www.wanted.co.kr/api/v4/jobs?query=${encodeURIComponent(term)}&country=kr&job_sort=job.latest_order&years=-1&limit=50`;
-        const res = await fetch(apiUrl, {
+        const res = await fetchWithTimeout(apiUrl, {
           headers: {
             'User-Agent': USER_AGENT,
             Accept: 'application/json',
             'Accept-Language': 'ko-KR,ko;q=0.9',
           },
+          timeout: 10000,
         });
 
         if (res.ok) {
@@ -72,12 +74,13 @@ export const wantedCrawler: PlatformCrawler = {
       await globalRateLimiter.wait();
       try {
         const url = `${BASE_URL}/search?query=${encodeURIComponent(term)}&tab=position`;
-        const res = await fetch(url, {
+        const res = await fetchWithTimeout(url, {
           headers: {
             'User-Agent': USER_AGENT,
             Accept: 'text/html',
             'Accept-Language': 'ko-KR,ko;q=0.9',
           },
+          timeout: 10000,
         });
 
         if (!res.ok) continue;

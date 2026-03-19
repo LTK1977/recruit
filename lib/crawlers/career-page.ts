@@ -4,6 +4,7 @@ import type { JobPosting } from '@/types/posting';
 import type { Company } from '@/types/company';
 import type { PlatformCrawler } from './crawler-service';
 import { globalRateLimiter } from './rate-limiter';
+import { fetchWithTimeout } from './fetch-with-timeout';
 import { hashPostingId, todayString } from '@/lib/constants';
 
 interface ExtractedJob {
@@ -114,17 +115,13 @@ export const careerPageCrawler: PlatformCrawler = {
 
     try {
       // 채용 페이지 HTML 가져오기
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 10000);
-
-      const res = await fetch(company.careerPageUrl, {
+      const res = await fetchWithTimeout(company.careerPageUrl, {
         headers: {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
           Accept: 'text/html,application/xhtml+xml',
         },
-        signal: controller.signal,
+        timeout: 10000,
       });
-      clearTimeout(timeout);
 
       if (!res.ok) {
         console.warn(`[career] HTTP ${res.status} for ${company.name}: ${company.careerPageUrl}`);
@@ -163,11 +160,7 @@ export const careerPageCrawler: PlatformCrawler = {
         lastSeenDate: today,
       }));
     } catch (err) {
-      if (err instanceof Error && err.name === 'AbortError') {
-        console.warn(`[career] Timeout fetching ${company.name}: ${company.careerPageUrl}`);
-      } else {
-        console.error(`[career] Error for ${company.name}:`, err);
-      }
+      console.error(`[career] Error for ${company.name}:`, err);
       return [];
     }
   },

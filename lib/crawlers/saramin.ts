@@ -2,6 +2,7 @@ import type { JobPosting } from '@/types/posting';
 import type { Company } from '@/types/company';
 import { hashPostingId, todayString } from '@/lib/constants';
 import { globalRateLimiter } from './rate-limiter';
+import { fetchWithTimeout } from './fetch-with-timeout';
 import type { PlatformCrawler } from './crawler-service';
 
 // 사람인 공식 API: https://oapi.saramin.co.kr/job-search
@@ -85,8 +86,9 @@ export const saraminCrawler: PlatformCrawler = {
       });
 
       try {
-        const res = await fetch(`${SARAMIN_API_BASE}?${params}`, {
+        const res = await fetchWithTimeout(`${SARAMIN_API_BASE}?${params}`, {
           headers: { Accept: 'application/json' },
+          timeout: 10000,
         });
 
         if (!res.ok) {
